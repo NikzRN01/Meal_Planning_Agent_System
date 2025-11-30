@@ -1,58 +1,294 @@
 """
-shopping_budget_agent.py
+Shopping & Budget Agent (live pricing via Flipkart scraping)
 
-Shopping & Budget Agent for Meal Planner Project.
+Compatible with:
+- RecipeAgentRunner.get_ingredients_for_shopping(), which returns:
+    {
+      "recipe_name": "...",
+      "ingredients": {
+        "Section 1": ["1 red bell pepper, chopped", ...],
+        "Section 2": [...]
+      }
+    }
 
-Responsibilities:
-1. Take recipe ingredients (output of RecipeAgent).
-2. Parse and aggregate ingredients from JSON format.
-3. Look up or approximate prices per store (mock implementation for now).
-4. Build a consolidated grocery list with best store choice per item.
-5. Compare estimated total cost against user budget.
-6. Suggest high-impact cost-saving changes if over budget.
+- main.py, which calls:
+    shopping_agent = ShoppingBudgetAgent(currency="INR")
+    shopping_agent.process_recipe_ingredients(
+        recipe_data=...,
+        stores=["Amazon", "Flipkart", "LocalStore"],
+        budget=500.0
+    )
+
+This agent:
+1. Extracts the ingredients dictionary from `recipe_data`
+2. Parses human-readable ingredient lines
+3. Normalizes ingredient names
+4. Fetches live prices from Flipkart (first search result scraped)
+5. Builds a shopping list + total estimated cost
+6. Compares cost with budget and returns budget analysis
+
+Dependencies (install once):
+    pip install requests beautifulsoup4
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, asdict
-from math import ceil
-from typing import List, Dict, Tuple, Any, Optional
-import json
-import os
-from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
+import re
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import quote_plus
 
-load_dotenv()
-
-print("✅ ShoppingBudgetAgent module loaded.")
 
 # =========================
-#   DATA STRUCTURES
+#   BASIC PARSING SUPPORT
 # =========================
+
+NUMERIC_PATTERN = re.compile(r"^(\d+(\.\d+)?|\d+/\d+)$")
+
+UNITS = {
+    "cup", "cups",
+    "tablespoon", "tablespoons", "tbsp",
+    "teaspoon", "teaspoons", "tsp",
+    "clove", "cloves",
+    "pound", "pounds", "lb", "lbs",
+    "gram", "grams", "g",
+    "kg", "kilogram", "kilograms",
+    "ml", "milliliter", "milliliters",
+    "l", "liter", "liters",
+}
+
+
+def _parse_number(token: str) -> Optional[float]:
+    """Parse '1', '1.5', '1/2' → float. Returns None if not numeric."""
+    token = token.strip()
+    if "/" in token:
+        try:
+            num, den = token.split("/", 1)
+            return float(num) / float(den)
+        except ValueError:
+            return None
+    try:
+        return float(token)
+    except ValueError:
+        return None
+
+
+def normalize_ingredient_name(name: str) -> str:
+    """
+    Normalize ingredient descriptions like:
+      'red bell pepper, seeded and chopped' → 'red bell pepper'
+    and map some synonyms to a generic search name.
+    """
+    name = name.lower().strip()
+
+    # Remove trailing descriptions after comma
+    if "," in name:
+        name = name.split(",", 1)[0].strip()
+
+    # Strip common prefixes
+    for prefix in ["fresh ", "grated ", "chopped ", "sliced ", "minced "]:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+
+    synonyms = {
+        "red bell pepper": "red bell pepper",
+        "yellow bell pepper": "yellow bell pepper",
+        "bell pepper red": "red bell pepper",
+        "bell pepper yellow": "yellow bell pepper",
+        "broccoli": "broccoli",
+        "broccoli florets": "broccoli",
+        "zucchini": "zucchini",
+        "green zucchini": "zucchini",
+        "yellow squash": "yellow squash",
+        "mushrooms": "mushrooms",
+        "button mushrooms": "mushrooms",
+        "mushroom": "mushrooms",
+        "red onion": "onion",
+        "onion": "onion",
+        "garlic": "garlic",
+        "olive oil": "olive oil",
+        "extra virgin olive oil": "olive oil",
+        "pasta": "pasta",
+        "penne": "pasta",
+        "farfalle": "pasta",
+        "rotini": "pasta",
+        "vegetable broth": "vegetable broth",
+        "veg broth": "vegetable broth",
+        "parmesan": "parmesan cheese",
+        "parmesan cheese": "parmesan cheese",
+        "basil": "basil",
+        "fresh basil": "basil",
+        "parsley": "parsley",
+        "fresh parsley": "parsley",
+        "salt": "salt",
+        "black pepper": "black pepper",
+        "freshly ground black pepper": "black pepper",
+    }
+
+    if name in synonyms:
+        return synonyms[name]
+
+    for key in synonyms:
+        if name.startswith(key):
+            return synonyms[key]
+
+    return name
+
 
 @dataclass
-class Ingredient:
+class ParsedIngredient:
+    raw_text: str
     name: str
     quantity: float
     unit: str
+    normalized_name: str
 
 
 @dataclass
-class Meal:
-    type: str               # e.g. "breakfast", "lunch", "dinner"
-    name: str
-    servings: int
-    ingredients: List[Ingredient]
+class ShoppingItem:
+    ingredient_name: str
+    normalized_name: str
+    total_quantity: float
+    unit: str
+    product_title: Optional[str]
+    product_url: Optional[str]
+    price: Optional[float]
 
 
-@dataclass
-class DayPlan:
-    day: int                # 1..7
-    meals: List[Meal]
+def parse_ingredient_line(line: str) -> Optional[ParsedIngredient]:
+    """
+    Parse lines like:
+      '1 red bell pepper, seeded and chopped'
+      '1 cup broccoli florets'
+      '2 cloves garlic, minced'
+      'Salt and freshly ground black pepper to taste'  → None (no fixed quantity)
+    """
+    raw = line.strip()
+    if not raw:
+        return None
+
+    tokens = raw.split()
+    if not tokens:
+        return None
+
+    qty = _parse_number(tokens[0])
+    if qty is None:
+        # No explicit quantity; skip for costing (e.g., 'Salt to taste')
+        return None
+
+    if len(tokens) == 1:
+        unit = "unit"
+        name_part = ""
+    else:
+        second = tokens[1].lower()
+        if second in UNITS:
+            unit = second
+            name_part = " ".join(tokens[2:])
+        else:
+            unit = "piece"  # default "count" unit
+            name_part = " ".join(tokens[1:])
+
+    name_part = name_part.strip() or "unknown"
+    normalized = normalize_ingredient_name(name_part)
+
+    return ParsedIngredient(
+        raw_text=raw,
+        name=name_part,
+        quantity=qty,
+        unit=unit,
+        normalized_name=normalized,
+    )
 
 
-@dataclass
-class Menu:
-    """Weekly menu – should match your RecipeAgent output structure."""
-    days: List[DayPlan]
+# =========================
+#   LIVE PRICE FETCHER
+# =========================
+
+class LivePriceFetcher:
+    """
+    Fetch live product prices from Flipkart search results via HTML scraping.
+    """
+
+    BASE_URL = "https://www.flipkart.com/search?q="
+
+    def __init__(self, user_agent: Optional[str] = None):
+        if user_agent is None:
+            user_agent = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/121.0.0.0 Safari/537.36"
+            )
+        self.headers = {"User-Agent": user_agent}
+
+    def fetch_price(self, query: str) -> Optional[Dict[str, Any]]:
+        """
+        Search Flipkart for `query`, return first product's title + price + URL.
+        Returns None on failure.
+        """
+        url = self.BASE_URL + quote_plus(query)
+        try:
+            resp = requests.get(url, headers=self.headers, timeout=10)
+        except Exception:
+            return None
+
+        if resp.status_code != 200:
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Try to find a product card (Flipkart often uses div[data-id])
+        product_card = soup.select_one("div[data-id]")
+        if not product_card:
+            # Fallback: any known product anchor
+            product_card = soup.select_one("a._1fQZEK, a.s1Q9rs, a.IRpwTa")
+
+        if not product_card:
+            return None
+
+        # Title
+        title_elem = (
+            product_card.select_one("a.s1Q9rs")
+            or product_card.select_one("a.IRpwTa")
+            or product_card.select_one("div._4rR01T")
+            or product_card
+        )
+        title = title_elem.get_text(strip=True) if title_elem else query
+
+        # Price (Flipkart uses div._30jeq3 for price in many layouts)
+        price_elem = product_card.select_one("div._30jeq3") or soup.select_one("div._30jeq3")
+        if not price_elem:
+            return None
+
+        price_text = price_elem.get_text(strip=True)
+        price_digits = re.sub(r"[^\d.]", "", price_text)
+        if not price_digits:
+            return None
+
+        try:
+            price_value = float(price_digits)
+        except ValueError:
+            return None
+
+        # URL
+        href = None
+        if hasattr(product_card, "get"):
+            if product_card.name == "a":
+                href = product_card.get("href")
+            else:
+                a_tag = product_card.select_one("a")
+                if a_tag is not None:
+                    href = a_tag.get("href")
+
+        if href and href.startswith("/"):
+            href = "https://www.flipkart.com" + href
+
+        return {
+            "query": query,
+            "title": title,
+            "price": price_value,
+            "url": href or url,
+        }
 
 
 # =========================
@@ -61,608 +297,229 @@ class Menu:
 
 class ShoppingBudgetAgent:
     """
-    Shopping & Budget Agent
+    Agent used in main.py:
 
-    Usage:
-        agent = ShoppingBudgetAgent(currency="INR")
-        # From Recipe Agent JSON:
-        result = agent.process_recipe_ingredients(recipe_data, stores=["Amazon", "Flipkart"], budget=500)
-        # From Menu structure:
-        result = agent.build_shopping_plan(menu, stores=["Amazon", "Flipkart"], budget=2000)
+        shopping_agent = ShoppingBudgetAgent(currency="INR")
 
-    Result (dict) includes:
-        - shopping_list: consolidated list of items with prices
+        shopping_plan = shopping_agent.process_recipe_ingredients(
+            recipe_data=recipe_data,
+            stores=["Amazon", "Flipkart", "LocalStore"],
+            budget=500.0
+        )
+
+    It returns a dict that includes:
+        - items: list of shopping items with titles, URLs, prices
         - estimated_total_cost
         - currency
         - budget
         - within_budget
-        - amount_over_budget
-        - recipe_change_suggestions
+        - amount_over_budget / amount_under_budget
+        - skipped_lines_no_quantity
+        - items_without_price
     """
 
-    def __init__(self, currency: str = "INR") -> None:
+    def __init__(self, currency: str = "INR"):
         self.currency = currency
-    
-    # ---------- RECIPE AGENT JSON PROCESSING ----------
-    
+        self.price_fetcher = LivePriceFetcher()
+
+    # --------- INTERNAL HELPERS ---------
+
+    def _aggregate_ingredients(
+        self, parsed: List[ParsedIngredient]
+    ) -> Dict[str, ShoppingItem]:
+        """
+        Aggregate quantities by normalized ingredient name.
+        """
+        agg: Dict[str, ShoppingItem] = {}
+
+        for ing in parsed:
+            key = ing.normalized_name
+            if key not in agg:
+                agg[key] = ShoppingItem(
+                    ingredient_name=ing.name,
+                    normalized_name=key,
+                    total_quantity=ing.quantity,
+                    unit=ing.unit,
+                    product_title=None,
+                    product_url=None,
+                    price=None,
+                )
+            else:
+                if agg[key].unit == ing.unit:
+                    agg[key].total_quantity += ing.quantity
+
+        return agg
+
+    def _attach_live_prices(self, agg: Dict[str, ShoppingItem]) -> None:
+        """
+        For each ingredient, run a live Flipkart search and attach the first price.
+        """
+        for key, item in agg.items():
+            # Basic query (you can later incorporate store or quantity if you want)
+            query = item.normalized_name
+            info = self.price_fetcher.fetch_price(query)
+            if info is None:
+                continue
+
+            item.product_title = info["title"]
+            item.product_url = info["url"]
+            item.price = info["price"]
+
+    def _evaluate_budget(
+        self,
+        total_cost: float,
+        budget: Optional[float],
+    ) -> Dict[str, Optional[float] | Optional[bool]]:
+        """Simple budget comparison."""
+        if budget is None:
+            return {
+                "within_budget": None,
+                "amount_over_budget": None,
+                "amount_under_budget": None,
+            }
+
+        within_budget = total_cost <= budget
+        if within_budget:
+            return {
+                "within_budget": True,
+                "amount_over_budget": 0.0,
+                "amount_under_budget": round(budget - total_cost, 2),
+            }
+        else:
+            return {
+                "within_budget": False,
+                "amount_over_budget": round(total_cost - budget, 2),
+                "amount_under_budget": 0.0,
+            }
+
+    # --------- PUBLIC ENTRYPOINT USED BY main.py ---------
+
     def process_recipe_ingredients(
         self,
         recipe_data: Dict[str, Any],
         stores: List[str],
-        budget: float,
+        budget: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Process ingredients from Recipe Agent's JSON format.
-        
-        Parameters
-        ----------
-        recipe_data : Dict[str, Any]
-            JSON from Recipe Agent with structure:
-            {
-                "recipe_name": str,
-                "ingredients": {
-                    "Section Name": ["ingredient strings", ...],
-                    ...
-                }
-            }
-        stores : List[str]
-            Stores to consider for pricing.
-        budget : float
-            User's budget for this recipe.
-        
-        Returns
-        -------
-        Dict[str, Any]
-            Shopping plan with costs and suggestions.
+        Main method called from FastAPI in main.py.
+
+        `recipe_data` might be either:
+        - full recipe (from /meal-plan): includes recipe_name, ingredients, etc.
+        - ingredients-only (from /shopping): {"recipe_name": ..., "ingredients": {...}}
+
+        We only care about:
+            recipe_name
+            ingredients (dict of section -> list of ingredient strings)
         """
-        # Parse ingredients from Recipe Agent JSON format
-        parsed_ingredients = self._parse_recipe_json(recipe_data)
-        
-        # Convert to aggregate format
-        aggregate = self._aggregate_parsed_ingredients(parsed_ingredients)
-        
-        # Build shopping list with prices
-        shopping_list, total_cost = self._build_shopping_list_with_prices(
-            aggregate=aggregate,
-            stores=stores,
-        )
-        
-        # Evaluate budget
-        budget_info = self._evaluate_budget(
-            shopping_list=shopping_list,
-            total_cost=total_cost,
-            budget=budget,
-        )
-        
-        return {
-            "recipe_name": recipe_data.get("recipe_name", "Unknown"),
-            "shopping_list": shopping_list,
-            "estimated_total_cost": total_cost,
-            "currency": self.currency,
-            "budget": budget,
-            "within_budget": budget_info["within_budget"],
-            "amount_over_budget": budget_info["amount_over_budget"],
-            "recipe_change_suggestions": budget_info["recipe_change_suggestions"],
-        }
-    
-    def _parse_recipe_json(self, recipe_data: Dict[str, Any]) -> List[Ingredient]:
-        """
-        Parse ingredients from Recipe Agent JSON format.
-        
-        Converts:
-        {
-            "For the Sauce": ["2 tablespoons olive oil", "1 onion, chopped"],
-            "For the Pasta": ["1 pound pasta"]
-        }
-        
-        To: List[Ingredient]
-        """
-        ingredients_list = []
-        ingredients_dict = recipe_data.get("ingredients", {})
-        
-        for section_name, items in ingredients_dict.items():
-            for item_str in items:
-                # Parse ingredient string (e.g., "2 tablespoons olive oil")
-                parsed = self._parse_ingredient_string(item_str)
-                if parsed:
-                    ingredients_list.append(parsed)
-        
-        return ingredients_list
-    
-    def _parse_ingredient_string(self, ingredient_str: str) -> Optional[Ingredient]:
-        """
-        Parse an ingredient string like "2 tablespoons olive oil" into components.
-        
-        Returns Ingredient or None if parsing fails.
-        """
-        import re
-        
-        # Pattern: optional number, optional unit, ingredient name
-        # Examples: "2 tablespoons olive oil", "1 onion, chopped", "salt to taste"
-        pattern = r'^([\d./]+)?\s*([a-zA-Z]+)?\s+(.+)$'
-        match = re.match(pattern, ingredient_str.strip())
-        
-        if match:
-            quantity_str = match.group(1)
-            unit = match.group(2) if match.group(2) else "piece"
-            name = match.group(3)
-            
-            # Parse quantity (handle fractions like 1/2)
-            if quantity_str:
-                if '/' in quantity_str:
-                    parts = quantity_str.split('/')
-                    quantity = float(parts[0]) / float(parts[1])
-                else:
-                    quantity = float(quantity_str)
+        # Try to extract ingredients dict robustly
+        recipe_name = recipe_data.get("recipe_name", "Unknown Recipe")
+        ingredients_section = recipe_data.get("ingredients", {})
+
+        if not isinstance(ingredients_section, dict):
+            # If for some reason it's not a dict, fallback to empty
+            ingredients_section = {}
+
+        # 1) Flatten all ingredient lines
+        all_lines: List[str] = []
+        for section_name, lines in ingredients_section.items():
+            if isinstance(lines, list):
+                all_lines.extend(lines)
+
+        # 2) Parse ingredient lines
+        parsed: List[ParsedIngredient] = []
+        skipped_lines: List[str] = []
+        for line in all_lines:
+            p = parse_ingredient_line(line)
+            if p is None:
+                skipped_lines.append(line)
             else:
-                quantity = 1.0
-            
-            # Clean up name (remove descriptions after comma)
-            name = name.split(',')[0].strip()
-            
-            return Ingredient(name=name, quantity=quantity, unit=unit)
-        else:
-            # Fallback: treat entire string as name with quantity 1
-            return Ingredient(name=ingredient_str.strip(), quantity=1.0, unit="piece")
-    
-    def _aggregate_parsed_ingredients(self, ingredients: List[Ingredient]) -> Dict[Tuple[str, str], float]:
-        """
-        Aggregate parsed ingredients by (name, unit).
-        """
-        aggregate: Dict[Tuple[str, str], float] = {}
-        
-        for ing in ingredients:
-            key = (ing.name.strip().lower(), ing.unit.lower())
-            aggregate[key] = aggregate.get(key, 0.0) + ing.quantity
-        
-        return aggregate
+                parsed.append(p)
 
-    # ---------- PUBLIC ENTRY POINT ----------
+        # 3) Aggregate + fetch live prices
+        agg = self._aggregate_ingredients(parsed)
+        self._attach_live_prices(agg)
 
-    def build_shopping_plan(
-        self,
-        menu: Menu,
-        stores: List[str],
-        budget: float,
-    ) -> Dict[str, Any]:
-        """
-        Main method called by the orchestrator.
-
-        Parameters
-        ----------
-        menu : Menu
-            Weekly menu generated by RecipeAgent.
-        stores : List[str]
-            Stores to consider for pricing (e.g., ["Amazon", "Flipkart"]).
-        budget : float
-            User's weekly grocery budget.
-
-        Returns
-        -------
-        Dict[str, Any]
-            {
-              "shopping_list": [...],
-              "estimated_total_cost": float,
-              "currency": str,
-              "budget": float,
-              "within_budget": bool,
-              "amount_over_budget": float,
-              "recipe_change_suggestions": [...]
-            }
-        """
-        # 1) Aggregate ingredients across all days/meals
-        aggregate = self._aggregate_ingredients(menu)
-
-        # 2) Create shopping list with best store options and total cost
-        shopping_list, total_cost = self._build_shopping_list_with_prices(
-            aggregate=aggregate,
-            stores=stores,
-        )
-
-        # 3) Evaluate cost vs budget + suggestions
-        budget_info = self._evaluate_budget(
-            shopping_list=shopping_list,
-            total_cost=total_cost,
-            budget=budget,
-        )
-
-        return {
-            "shopping_list": shopping_list,
-            "estimated_total_cost": total_cost,
-            "currency": self.currency,
-            "budget": budget,
-            "within_budget": budget_info["within_budget"],
-            "amount_over_budget": budget_info["amount_over_budget"],
-            "recipe_change_suggestions": budget_info["recipe_change_suggestions"],
-        }
-
-    # ---------- SHOPPING LOGIC ----------
-
-    def _aggregate_ingredients(self, menu: Menu) -> Dict[Tuple[str, str], float]:
-        """
-        Combine all ingredients across the menu.
-
-        Returns
-        -------
-        Dict[(ingredient_name_lower, unit), total_quantity]
-        """
-        aggregate: Dict[Tuple[str, str], float] = {}
-
-        for day in menu.days:
-            for meal in day.meals:
-                for ing in meal.ingredients:
-                    key = (ing.name.strip().lower(), ing.unit)
-                    aggregate[key] = aggregate.get(key, 0.0) + ing.quantity
-
-        return aggregate
-
-    def _categorize_ingredient(self, item_name: str) -> str:
-        """
-        Categorize ingredient based on its name.
-        
-        Categories: vegetables, fruits, grains, dairy, protein, spices, oils, other
-        """
-        name = item_name.lower()
-        
-        # Vegetables
-        vegetables = ["onion", "tomato", "potato", "bell pepper", "pepper", "zucchini", 
-                     "carrot", "spinach", "lettuce", "cabbage", "broccoli", "cauliflower",
-                     "mushroom", "garlic", "ginger", "celery", "cucumber"]
-        
-        # Fruits
-        fruits = ["apple", "banana", "orange", "lemon", "lime", "mango", "berry", 
-                 "strawberry", "grape", "pineapple"]
-        
-        # Grains & Pasta
-        grains = ["rice", "pasta", "penne", "rigatoni", "spaghetti", "flour", "wheat",
-                 "bread", "oats", "quinoa", "barley", "noodle"]
-        
-        # Dairy
-        dairy = ["milk", "cheese", "mozzarella", "parmesan", "cheddar", "ricotta",
-                "yogurt", "butter", "cream", "paneer"]
-        
-        # Protein
-        protein = ["chicken", "beef", "pork", "fish", "salmon", "tuna", "egg",
-                  "tofu", "lentil", "bean", "chickpea"]
-        
-        # Spices & Herbs
-        spices = ["salt", "pepper", "chili", "oregano", "basil", "thyme", "rosemary",
-                 "cumin", "coriander", "turmeric", "paprika", "cinnamon", "garam masala",
-                 "bay leaf", "mint", "cilantro", "parsley", "fenugreek", "kasuri methi"]
-        
-        # Oils & Sauces
-        oils = ["oil", "olive oil", "vegetable oil", "butter", "ghee", "sauce",
-               "tomato sauce", "soy sauce", "vinegar", "paste", "tomato paste"]
-        
-        for veg in vegetables:
-            if veg in name:
-                return "vegetables"
-        
-        for fruit in fruits:
-            if fruit in name:
-                return "fruits"
-        
-        for grain in grains:
-            if grain in name:
-                return "grains"
-        
-        for d in dairy:
-            if d in name:
-                return "dairy"
-        
-        for p in protein:
-            if p in name:
-                return "protein"
-        
-        for spice in spices:
-            if spice in name:
-                return "spices"
-        
-        for o in oils:
-            if o in name:
-                return "oils"
-        
-        return "other"
-
-    def _dynamic_price_lookup(
-        self,
-        item_name: str,
-        unit: str,
-        category: str,
-        stores: List[str],
-    ) -> List[Dict[str, Any]]:
-        """
-        Dynamic price lookup based on ingredient category and typical market prices.
-        
-        This provides realistic price estimates based on category.
-        Can be replaced with actual API calls to Amazon/Flipkart.
-        
-        Returns
-        -------
-        List of store options with prices
-        """
-        # Default package sizes and base prices by category (in INR)
-        category_pricing = {
-            "vegetables": {
-                "base_price": 40,
-                "package_size": 500,
-                "package_unit": "gram",
-                "price_variance": 0.3  # 30% price variation between stores
-            },
-            "fruits": {
-                "base_price": 60,
-                "package_size": 500,
-                "package_unit": "gram",
-                "price_variance": 0.25
-            },
-            "grains": {
-                "base_price": 50,
-                "package_size": 1000,
-                "package_unit": "gram",
-                "price_variance": 0.2
-            },
-            "dairy": {
-                "base_price": 180,
-                "package_size": 200,
-                "package_unit": "gram",
-                "price_variance": 0.15
-            },
-            "protein": {
-                "base_price": 250,
-                "package_size": 500,
-                "package_unit": "gram",
-                "price_variance": 0.25
-            },
-            "spices": {
-                "base_price": 30,
-                "package_size": 50,
-                "package_unit": "gram",
-                "price_variance": 0.4
-            },
-            "oils": {
-                "base_price": 150,
-                "package_size": 500,
-                "package_unit": "ml",
-                "price_variance": 0.2
-            },
-            "other": {
-                "base_price": 100,
-                "package_size": 500,
-                "package_unit": unit,
-                "price_variance": 0.3
-            }
-        }
-        
-        pricing_info = category_pricing.get(category, category_pricing["other"])
-        
-        # Generate prices for different stores with variance
-        import random
-        random.seed(hash(item_name))  # Consistent prices for same item
-        
-        store_options = []
-        default_stores = stores if stores else ["Amazon", "Flipkart", "LocalStore"]
-        
-        for i, store in enumerate(default_stores[:3]):  # Max 3 stores
-            variance = pricing_info["price_variance"]
-            price_multiplier = 1 + random.uniform(-variance, variance)
-            
-            store_options.append({
-                "store": store,
-                "package_size": pricing_info["package_size"],
-                "package_unit": pricing_info["package_unit"],
-                "price": round(pricing_info["base_price"] * price_multiplier, 2)
-            })
-        
-        return store_options
-
-    def _build_shopping_list_with_prices(
-        self,
-        aggregate: Dict[Tuple[str, str], float],
-        stores: List[str],
-    ) -> Tuple[List[Dict[str, Any]], float]:
-        """
-        For each ingredient, choose cheapest store option and compute total cost.
-        Uses dynamic pricing based on ingredient category.
-
-        Returns
-        -------
-        shopping_list : List[Dict[str, Any]]
-        total_cost    : float
-        """
-        shopping_list: List[Dict[str, Any]] = []
+        # 4) Build list of items + total cost
+        items: List[Dict[str, Any]] = []
         total_cost = 0.0
+        items_without_price: List[str] = []
 
-        for (name, unit), qty in aggregate.items():
-            # Categorize the ingredient
-            category = self._categorize_ingredient(name)
-            
-            # Get price options from different stores
-            options_raw = self._dynamic_price_lookup(name, unit, category, stores)
+        for key, item in agg.items():
+            if item.price is None:
+                items_without_price.append(item.ingredient_name)
+                continue
 
-            store_options = []
-            best_cost = None
-            best_option = None
-
-            for opt in options_raw:
-                packages_needed = ceil(qty / opt["package_size"])
-                effective_cost = packages_needed * opt["price"]
-
-                store_options.append(
-                    {
-                        "store": opt["store"],
-                        "package_size": opt["package_size"],
-                        "package_unit": opt["package_unit"],
-                        "price": opt["price"],
-                        "currency": self.currency,
-                    }
-                )
-
-                if best_cost is None or effective_cost < best_cost:
-                    best_cost = effective_cost
-                    best_option = {
-                        "chosen_store": opt["store"],
-                        "packages_needed": packages_needed,
-                        "chosen_price": opt["price"],
-                        "effective_cost": effective_cost,
-                    }
-
-            total_cost += best_cost or 0.0
-
-            shopping_list.append(
+            total_cost += item.price
+            items.append(
                 {
-                    "item": name,
-                    "category": category,
-                    "required_quantity": qty,
-                    "unit": unit,
-                    "store_options": store_options,
-                    **best_option,
+                    "ingredient_display_name": item.ingredient_name,
+                    "normalized_name": item.normalized_name,
+                    "recipe_quantity": item.total_quantity,
+                    "recipe_unit": item.unit,
+                    "product_title": item.product_title,
+                    "product_url": item.product_url,
+                    "price": item.price,
+                    "currency": self.currency,
                 }
             )
 
-        return shopping_list, total_cost
+        # 5) Budget analysis
+        budget_info = self._evaluate_budget(total_cost, budget)
 
-    # ---------- BUDGET LOGIC ----------
-
-    def _evaluate_budget(
-        self,
-        shopping_list: List[Dict[str, Any]],
-        total_cost: float,
-        budget: float,
-    ) -> Dict[str, Any]:
-        """
-        Compare total_cost vs budget and generate intelligent cost-saving suggestions
-        based on ingredient categories.
-        """
-        within_budget = total_cost <= budget
-        amount_over_budget = max(0.0, total_cost - budget)
-
-        recipe_change_suggestions: List[Dict[str, Any]] = []
-
-        if not within_budget:
-            # Identify expensive items by category
-            expensive_items = sorted(
-                shopping_list, 
-                key=lambda x: x["effective_cost"], 
-                reverse=True
-            )
-            
-            # Generate smart suggestions based on category
-            suggestions_made = 0
-            for item in expensive_items:
-                if suggestions_made >= 5:  # Limit to top 5 suggestions
-                    break
-                
-                category = item["category"]
-                item_name = item["item"]
-                cost = item["effective_cost"]
-                
-                suggestion = None
-                
-                if category == "dairy" and cost > 100:
-                    suggestion = {
-                        "impact": "high",
-                        "category": category,
-                        "item": item_name,
-                        "description": f"Consider reducing '{item_name}' quantity or using a cheaper alternative like plant-based options.",
-                        "estimated_savings": round(0.4 * cost, 2),
-                    }
-                elif category == "protein" and cost > 150:
-                    suggestion = {
-                        "impact": "high",
-                        "category": category,
-                        "item": item_name,
-                        "description": f"Replace '{item_name}' with more economical protein sources like lentils, chickpeas, or eggs.",
-                        "estimated_savings": round(0.5 * cost, 2),
-                    }
-                elif category == "vegetables" and cost > 80:
-                    suggestion = {
-                        "impact": "medium",
-                        "category": category,
-                        "item": item_name,
-                        "description": f"Buy '{item_name}' from local markets instead of premium stores for better prices.",
-                        "estimated_savings": round(0.25 * cost, 2),
-                    }
-                elif category == "grains" and cost > 100:
-                    suggestion = {
-                        "impact": "medium",
-                        "category": category,
-                        "item": item_name,
-                        "description": f"Purchase '{item_name}' in bulk quantities to reduce per-unit cost.",
-                        "estimated_savings": round(0.3 * cost, 2),
-                    }
-                elif cost > 50:  # General expensive items
-                    suggestion = {
-                        "impact": "low",
-                        "category": category,
-                        "item": item_name,
-                        "description": f"Consider reducing '{item_name}' quantity or finding cheaper alternatives.",
-                        "estimated_savings": round(0.2 * cost, 2),
-                    }
-                
-                if suggestion:
-                    recipe_change_suggestions.append(suggestion)
-                    suggestions_made += 1
-            
-            # Add overall budget tip
-            if amount_over_budget > 0:
-                recipe_change_suggestions.insert(0, {
-                    "impact": "critical",
-                    "category": "budget",
-                    "item": "Overall Budget",
-                    "description": f"You are ₹{round(amount_over_budget, 2)} over budget. Consider implementing the suggestions below to reduce costs.",
-                    "estimated_savings": round(sum(s.get("estimated_savings", 0) for s in recipe_change_suggestions), 2),
-                })
-
+        # 6) Final payload (main.py expects keys like estimated_total_cost & currency)
         return {
-            "within_budget": within_budget,
-            "amount_over_budget": amount_over_budget,
-            "recipe_change_suggestions": recipe_change_suggestions,
+            "recipe_name": recipe_name,
+            "currency": self.currency,
+            "items": items,
+            "estimated_total_cost": round(total_cost, 2),
+            "budget": budget,
+            "within_budget": budget_info["within_budget"],
+            "amount_over_budget": budget_info["amount_over_budget"],
+            "amount_under_budget": budget_info["amount_under_budget"],
+            "skipped_lines_no_quantity": skipped_lines,
+            "items_without_price": items_without_price,
         }
 
 
 # =========================
-#   SIMPLE DEMO / TEST
+#   LOCAL TEST (optional)
 # =========================
 
 if __name__ == "__main__":
-    # Minimal example to test the agent independently.
-
-    # Build a tiny fake menu similar to what RecipeAgent would output
-    breakfast = Meal(
-        type="breakfast",
-        name="Masala Oats",
-        servings=2,
-        ingredients=[
-            Ingredient(name="Oats", quantity=50, unit="gram"),
-            Ingredient(name="Onion", quantity=0.5, unit="piece"),
-        ],
-    )
-
-    dinner = Meal(
-        type="dinner",
-        name="Paneer Curry",
-        servings=2,
-        ingredients=[
-            Ingredient(name="Paneer", quantity=80, unit="gram"),
-            Ingredient(name="Tomato", quantity=0.5, unit="piece"),
-        ],
-    )
-
-    menu = Menu(
-        days=[
-            DayPlan(day=1, meals=[breakfast, dinner]),
-            DayPlan(day=2, meals=[breakfast, dinner]),
-        ]
-    )
+    # Small self-test using your Vegetarian Pasta Primavera example
+    ingredients_json = {
+        "recipe_name": "Vegetarian Pasta Primavera",
+        "ingredients": {
+            "For the Vegetable Medley": [
+                "1 red bell pepper, seeded and chopped",
+                "1 yellow bell pepper, seeded and chopped",
+                "1 cup broccoli florets",
+                "1 cup sliced zucchini",
+                "1 cup sliced yellow squash",
+                "1 cup sliced mushrooms",
+                "1/2 cup chopped red onion",
+                "2 cloves garlic, minced",
+                "2 tablespoons olive oil",
+                "Salt and freshly ground black pepper to taste",
+            ],
+            "For the Pasta and Sauce": [
+                "1 pound pasta (such as penne, farfalle, or rotini)",
+                "1/4 cup olive oil",
+                "1/4 cup vegetable broth",
+                "1/4 cup grated Parmesan cheese (optional, for vegetarians)",
+                "2 tablespoons fresh basil, chopped",
+                "1 tablespoon fresh parsley, chopped",
+                "Salt and freshly ground black pepper to taste",
+            ],
+        },
+    }
 
     agent = ShoppingBudgetAgent(currency="INR")
-
-    result = agent.build_shopping_plan(
-        menu=menu,
-        stores=["Amazon", "Flipkart"],
-        budget=500,  # weekly budget
+    plan = agent.process_recipe_ingredients(
+        recipe_data=ingredients_json,
+        stores=["Flipkart"],
+        budget=2000.0,
     )
 
-    # Pretty-print result
     from pprint import pprint
-    pprint(result)
+    pprint(plan)
