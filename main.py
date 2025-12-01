@@ -11,71 +11,41 @@ This server handles:
 import sys
 import os
 import asyncio
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
-
-# Guard FastAPI imports so CLI can run without API deps
-API_AVAILABLE = True
-try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.middleware.cors import CORSMiddleware
-    from pydantic import BaseModel
-    import uvicorn
-except Exception:
-    API_AVAILABLE = False
+import uvicorn
 
 # Add agents directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), "agents"))
 
-<<<<<<< HEAD
 # Import agents
 from agents.recipe_agent import recipe_agent, RecipeAgentRunner
 from agents.shopping_budget_agent import ShoppingBudgetAgent
 from agents.preference_agent import preference_agent, PreferenceAgentRunner
 from agents.health_agent import HealthAgent
-=======
-if API_AVAILABLE:
-    # Import ADK recipe runner if present; fall back safely
-    try:
-        from agents.recipe_agent import recipe_agent, RecipeAgentRunner  # guarded inside module
-    except Exception:
-        recipe_agent = None
-        RecipeAgentRunner = None  # type: ignore
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
 
-    # Use advanced shopping agent if available, else minimal
-    try:
-        from agents.shopping_budget_agent import ShoppingBudgetAgentAdvanced as ShoppingBudgetAgent
-    except Exception:
-        from agents.shopping_budget_agent import ShoppingBudgetAgent
-
-if API_AVAILABLE:
-    app = FastAPI(
-        title="Meal Planner Agent API",
-        description="API for Recipe, Shopping & Budget, and Health Agents",
-        version="1.0.0"
-    )
+app = FastAPI(
+    title="Meal Planner Agent API",
+    description="API for Recipe, Shopping & Budget, and Health Agents",
+    version="1.0.0"
+)
 
 # Enable CORS
-if API_AVAILABLE:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize agent runners
-<<<<<<< HEAD
 recipe_runner = RecipeAgentRunner(recipe_agent)
 shopping_agent = ShoppingBudgetAgent(currency="INR")
 preference_runner = PreferenceAgentRunner(preference_agent)
 health_agent = HealthAgent()
-=======
-if API_AVAILABLE:
-    recipe_runner = RecipeAgentRunner(recipe_agent) if RecipeAgentRunner and recipe_agent else None
-    shopping_agent = ShoppingBudgetAgent(currency="INR")
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
 
 
 # =========================
@@ -303,7 +273,6 @@ User description:
 #   RECIPE AGENT ENDPOINTS
 # =========================
 
-<<<<<<< HEAD
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -332,136 +301,122 @@ async def root():
             "complete_workflow": {
                 "POST /complete-meal-plan": "🌟 FULL WORKFLOW: Preference → Recipe → Shopping + Health",
                 "POST /meal-plan": "Recipe → Shopping + Nutrition workflow"
-=======
-if API_AVAILABLE:
-    @app.get("/")
-    async def root():
-        """Health check endpoint"""
-        return {
-            "status": "ok",
-            "service": "Meal Planner Agent API",
-            "version": "1.0.0",
-            "endpoints": {
-                "recipe": "/recipe (POST)",
-                "shopping": "/shopping (POST)",
-                "health": "/health (POST - coming soon)"
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
             }
         }
+    }
 
 
-    @app.post("/recipe")
-    async def get_recipe(preferences: PreferenceRequest):
-        """
-        Get recipe based on preferences
+@app.post("/recipe")
+async def get_recipe(preferences: PreferenceRequest):
+    """
+    Get recipe based on preferences
+    
+    Args:
+        preferences: User dietary preferences and requirements
+    
+    Returns:
+        Recipe with ingredients and nutritional information
+    """
+    try:
+        # Convert Pydantic model to dict
+        prefs_dict = preferences.model_dump()
         
-        Args:
-            preferences: User dietary preferences and requirements
+        # Fetch recipe using the agent
+        recipe_data = await recipe_runner.fetch_recipe(prefs_dict)
         
-        Returns:
-            Recipe with ingredients and nutritional information
-        """
-        try:
-            # Convert Pydantic model to dict
-            prefs_dict = preferences.model_dump()
-            
-            # Fetch recipe using the agent
-            recipe_data = await recipe_runner.fetch_recipe(prefs_dict)
-            
-            # Check for errors in the response
-            if "error" in recipe_data:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Recipe Agent Error: {recipe_data.get('error')}"
-                )
-            
-            return {
-                "success": True,
-                "data": recipe_data,
-                "message": "Recipe fetched successfully"
-            }
-        
-        except Exception as e:
+        # Check for errors in the response
+        if "error" in recipe_data:
             raise HTTPException(
                 status_code=500,
-                detail=f"Error fetching recipe: {str(e)}"
+                detail=f"Recipe Agent Error: {recipe_data.get('error')}"
             )
-
-
-    @app.get("/recipe/example")
-    async def get_recipe_example():
-        """Get an example recipe (for testing)"""
-        try:
-            example_prefs = {
-                "dietary_restrictions": ["vegetarian"],
-                "cuisine_preferences": ["Italian"],
-                "meal_type": "dinner",
-                "servings": 4,
-                "budget_per_meal": 25
-            }
-            
-            recipe_data = await recipe_runner.fetch_recipe(example_prefs)
-            
-            return {
-                "success": True,
-                "data": recipe_data,
-                "message": "Example recipe fetched successfully"
-            }
         
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error fetching example recipe: {str(e)}"
-            )
+        return {
+            "success": True,
+            "data": recipe_data,
+            "message": "Recipe fetched successfully"
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching recipe: {str(e)}"
+        )
+
+
+@app.get("/recipe/example")
+async def get_recipe_example():
+    """Get an example recipe (for testing)"""
+    try:
+        example_prefs = {
+            "dietary_restrictions": ["vegetarian"],
+            "cuisine_preferences": ["Italian"],
+            "meal_type": "dinner",
+            "servings": 4,
+            "budget_per_meal": 25
+        }
+        
+        recipe_data = await recipe_runner.fetch_recipe(example_prefs)
+        
+        return {
+            "success": True,
+            "data": recipe_data,
+            "message": "Example recipe fetched successfully"
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching example recipe: {str(e)}"
+        )
 
 
 # =========================
 #   SHOPPING & BUDGET AGENT ENDPOINTS
 # =========================
 
-    @app.post("/shopping")
-    async def get_shopping_list(ingredients_data: IngredientsRequest):
-        """
-        Generate shopping list from recipe ingredients with pricing and budget analysis
+@app.post("/shopping")
+async def get_shopping_list(ingredients_data: IngredientsRequest):
+    """
+    Generate shopping list from recipe ingredients with pricing and budget analysis
+    
+    Args:
+        ingredients_data: Recipe name, ingredients, budget, and stores
+    
+    Returns:
+        Shopping list with prices, total cost, and budget recommendations
+    """
+    try:
+        # Prepare recipe data for shopping agent
+        recipe_data = {
+            "recipe_name": ingredients_data.recipe_name,
+            "ingredients": ingredients_data.ingredients
+        }
         
-        Args:
-            ingredients_data: Recipe name, ingredients, budget, and stores
+        # Process ingredients and get shopping plan
+        shopping_plan = shopping_agent.process_recipe_ingredients(
+            recipe_data=recipe_data,
+            stores=ingredients_data.stores,
+            budget=ingredients_data.budget
+        )
         
-        Returns:
-            Shopping list with prices, total cost, and budget recommendations
-        """
-        try:
-            # Prepare recipe data for shopping agent
-            recipe_data = {
-                "recipe_name": ingredients_data.recipe_name,
-                "ingredients": ingredients_data.ingredients
-            }
-            
-            # Process ingredients and get shopping plan
-            shopping_plan = shopping_agent.process_recipe_ingredients(
-                recipe_data=recipe_data,
-                stores=ingredients_data.stores,
-                budget=ingredients_data.budget
-            )
-            
-            return {
-                "success": True,
-                "data": shopping_plan,
-                "message": "Shopping list generated successfully with pricing and budget analysis"
-            }
-        
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error generating shopping list: {str(e)}"
-            )
+        return {
+            "success": True,
+            "data": shopping_plan,
+            "message": "Shopping list generated successfully with pricing and budget analysis"
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating shopping list: {str(e)}"
+        )
 
 
 # =========================
 #   HEALTH AGENT ENDPOINTS
 # =========================
 
-<<<<<<< HEAD
 @app.post("/health")
 async def analyze_nutrition(nutrition_data: NutritionRequest):
     """
@@ -504,37 +459,6 @@ async def analyze_nutrition(nutrition_data: NutritionRequest):
             status_code=500,
             detail=f"Error analyzing nutrition: {str(e)}"
         )
-=======
-    @app.post("/health")
-    async def analyze_nutrition(nutrition_data: NutritionRequest):
-        """
-        Analyze nutritional information (Health Agent - work in progress)
-        
-        Args:
-            nutrition_data: Recipe name and nutritional information
-        
-        Returns:
-            Nutritional analysis and health recommendations
-        """
-        try:
-            # TODO: Integrate with health_agent when ready
-            
-            return {
-                "success": True,
-                "data": {
-                    "recipe_name": nutrition_data.recipe_name,
-                    "nutritional_information": nutrition_data.nutritional_information,
-                    "analysis": "Health Agent integration pending"
-                },
-                "message": "Nutritional information received. Analysis in progress."
-            }
-        
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error analyzing nutrition: {str(e)}"
-            )
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
 
 
 @app.post("/recipe-to-health")
@@ -601,7 +525,6 @@ async def recipe_to_health_workflow(recipe_name: str, user_id: str = "user_001")
 #   COMBINED WORKFLOW ENDPOINT
 # =========================
 
-<<<<<<< HEAD
 @app.post("/complete-meal-plan")
 async def complete_meal_plan_workflow(preference_input: UserPreferenceInput):
     """
@@ -762,74 +685,56 @@ async def create_meal_plan(preferences: PreferenceRequest):
         # Step 1: Get recipe from Recipe Agent
         prefs_dict = preferences.model_dump()
         recipe_data = await recipe_runner.fetch_recipe(prefs_dict)
-=======
-    @app.post("/meal-plan")
-    async def create_meal_plan(preferences: PreferenceRequest):
-        """
-        Complete workflow: Get recipe and forward data to other agents
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
         
-        Args:
-            preferences: User dietary preferences and requirements
-        
-        Returns:
-            Complete meal plan with recipe, shopping list, and health analysis
-        """
-        try:
-            # Step 1: Get recipe from Recipe Agent
-            prefs_dict = preferences.model_dump()
-            recipe_data = await recipe_runner.fetch_recipe(prefs_dict)
-            
-            if "error" in recipe_data:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Recipe Agent Error: {recipe_data.get('error')}"
-                )
-            
-            # Step 2: Extract ingredients for Shopping & Budget Agent
-            ingredients_for_shopping = recipe_runner.get_ingredients_for_shopping(recipe_data)
-            
-            # Step 3: Generate shopping list with pricing
-            budget = prefs_dict.get("budget_per_meal", 500.0)
-            shopping_plan = shopping_agent.process_recipe_ingredients(
-                recipe_data=recipe_data,
-                stores=["Amazon", "Flipkart", "LocalStore"],
-                budget=budget
-            )
-            
-            # Step 4: Extract nutrition for Health Agent
-            nutrition_for_health = recipe_runner.get_nutrition_for_health(recipe_data)
-            
-            # Step 5: Return combined response
-            return {
-                "success": True,
-                "data": {
-                    "recipe": recipe_data,
-                    "shopping_plan": shopping_plan,
-                    "nutrition_for_health": nutrition_for_health
-                },
-                "message": "Complete meal plan created successfully",
-                "summary": {
-                    "recipe_name": recipe_data.get("recipe_name", "Unknown"),
-                    "total_cost": shopping_plan.get("estimated_total_cost", 0),
-                    "currency": shopping_plan.get("currency", "INR"),
-                    "within_budget": shopping_plan.get("within_budget", True),
-                    "budget_status": f"₹{shopping_plan.get('estimated_total_cost', 0):.2f} / ₹{budget:.2f}"
-                }
-            }
-        
-        except Exception as e:
+        if "error" in recipe_data:
             raise HTTPException(
                 status_code=500,
-                detail=f"Error creating meal plan: {str(e)}"
+                detail=f"Recipe Agent Error: {recipe_data.get('error')}"
             )
+        
+        # Step 2: Extract ingredients for Shopping & Budget Agent
+        ingredients_for_shopping = recipe_runner.get_ingredients_for_shopping(recipe_data)
+        
+        # Step 3: Generate shopping list with pricing
+        budget = prefs_dict.get("budget_per_meal", 500.0)
+        shopping_plan = shopping_agent.process_recipe_ingredients(
+            recipe_data=recipe_data,
+            stores=["Amazon", "Flipkart", "LocalStore"],
+            budget=budget
+        )
+        
+        # Step 4: Extract nutrition for Health Agent
+        nutrition_for_health = recipe_runner.get_nutrition_for_health(recipe_data)
+        
+        # Step 5: Return combined response
+        return {
+            "success": True,
+            "data": {
+                "recipe": recipe_data,
+                "shopping_plan": shopping_plan,
+                "nutrition_for_health": nutrition_for_health
+            },
+            "message": "Complete meal plan created successfully",
+            "summary": {
+                "recipe_name": recipe_data.get("recipe_name", "Unknown"),
+                "total_cost": shopping_plan.get("estimated_total_cost", 0),
+                "currency": shopping_plan.get("currency", "INR"),
+                "within_budget": shopping_plan.get("within_budget", True),
+                "budget_status": f"₹{shopping_plan.get('estimated_total_cost', 0):.2f} / ₹{budget:.2f}"
+            }
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating meal plan: {str(e)}"
+        )
 
 
 # =========================
 #   SERVER STARTUP
 # =========================
 
-<<<<<<< HEAD
 if __name__ == "__main__":
     print("🚀 Starting Meal Planner Agent API (v2.0)...")
     print("\n" + "="*60)
@@ -840,12 +745,6 @@ if __name__ == "__main__":
     print("   - GET  /preference/{user_id} (Get stored profile)")
     print("   - POST /preference-to-recipe (Preference → Recipe)")
     print("\n🔹 RECIPE AGENT:")
-=======
-if __name__ == "__main__" and API_AVAILABLE:
-    print("🚀 Starting Meal Planner Agent API...")
-    print("📋 Available endpoints:")
-    print("   - GET  / (Health check)")
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
     print("   - POST /recipe (Get recipe from preferences)")
     print("   - GET  /recipe/example (Get example recipe)")
     print("\n🔹 SHOPPING & BUDGET AGENT:")
@@ -859,11 +758,7 @@ if __name__ == "__main__" and API_AVAILABLE:
     print("\n" + "="*60)
     print("🌐 Server running at: http://localhost:8000")
     print("📚 API Docs at: http://localhost:8000/docs")
-<<<<<<< HEAD
     print("📊 Health check: http://localhost:8000/")
     print("="*60 + "\n")
     
-=======
-
->>>>>>> d683f22fb18e9df5c0356e05197635ff25e3eab1
     uvicorn.run(app, host="0.0.0.0", port=8000)
