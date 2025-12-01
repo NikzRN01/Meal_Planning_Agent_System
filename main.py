@@ -1,6 +1,5 @@
 from core.orchestrator import MealPlanningOrchestrator
 
-
 def main():
     orchestrator = MealPlanningOrchestrator()
     week_plan, health_report, estimated_cost = orchestrator.run_weekly_planning()
@@ -25,7 +24,6 @@ def main():
     print(f"\nAverage health score: {health_report.average_score}")
     print(f"Global flags: {health_report.global_flags}")
     print(f"Estimated weekly grocery cost: {estimated_cost}")
-
 
 if __name__ == "__main__":
     main()
