@@ -52,8 +52,8 @@ import uvicorn
 sys.path.append(os.path.join(os.path.dirname(__file__), "agents"))
 
 # Import agents
-from agents.recipeagent import recipe_agent, RecipeAgentRunner
-from agents.shopping_budget_agent import ShoppingBudgetAgent
+from agents.recipe_agent import recipe_agent, RecipeAgentRunner
+from agents.shopping_budget_agent import ShoppingBudgetAgentLive
 
 app = FastAPI(
     title="Meal Planner Agent API",
@@ -72,7 +72,7 @@ app.add_middleware(
 
 # Initialize agent runners
 recipe_runner = RecipeAgentRunner(recipe_agent)
-shopping_agent = ShoppingBudgetAgent(currency="INR")
+shopping_agent = ShoppingBudgetAgentLive(currency="INR")
 
 
 # =========================

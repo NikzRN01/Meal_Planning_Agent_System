@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import defaultdict
 from typing import Dict
 from models.schema import WeekPlan, Ingredient, UserHealthProfile
@@ -79,7 +81,6 @@ Dependencies (install once):
     pip install requests beautifulsoup4
 """
 
-from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 import re
@@ -340,14 +341,14 @@ class LivePriceFetcher:
 
 
 # =========================
-#   SHOPPING & BUDGET AGENT
+#   SHOPPING & BUDGET AGENT (LIVE PRICING)
 # =========================
 
-class ShoppingBudgetAgent:
+class ShoppingBudgetAgentLive:
     """
     Agent used in main.py:
 
-        shopping_agent = ShoppingBudgetAgent(currency="INR")
+        shopping_agent = ShoppingBudgetAgentLive(currency="INR")
 
         shopping_plan = shopping_agent.process_recipe_ingredients(
             recipe_data=recipe_data,
@@ -562,7 +563,7 @@ if __name__ == "__main__":
         },
     }
 
-    agent = ShoppingBudgetAgent(currency="INR")
+    agent = ShoppingBudgetAgentLive(currency="INR")
     plan = agent.process_recipe_ingredients(
         recipe_data=ingredients_json,
         stores=["Flipkart"],
