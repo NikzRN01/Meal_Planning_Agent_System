@@ -28,18 +28,36 @@ def test_complete_meal_plan():
     print("TEST 2: Complete Meal Plan Workflow")
     print("="*80)
     
-    payload = {
-        "user_description": """
+    # Ask user for their preferences
+    print("\n👋 Welcome! Please describe your dietary preferences and health goals.")
+    print("\nYou can mention:")
+    print("  - Diet type (vegetarian, vegan, keto, etc.)")
+    print("  - Daily calorie goals")
+    print("  - Protein, carbs, fat targets")
+    print("  - Number of meals per day")
+    print("  - Any food allergies")
+    print("  - Foods you dislike")
+    print("  - Health conditions (diabetes, high BP, etc.)")
+    print("\nExample: 'I am vegetarian, need 2000 calories, 120g protein, 3 meals daily, allergic to peanuts, diabetic'\n")
+    
+    user_input = input("📝 Your preferences: ").strip()
+    
+    if not user_input:
+        print("\n⚠️  No input provided. Using default example...")
+        user_input = """
         I am a vegetarian who wants to eat healthy. I need about 2000 calories per day.
         I want high protein meals (around 120g per day) with moderate carbs (200g) and 
         healthy fats (60g). I eat 3 meals a day. I'm allergic to peanuts and don't like 
         mushrooms. I have diabetes so I need low sugar meals.
-        """,
+        """
+    
+    payload = {
+        "user_description": user_input,
         "user_id": "test_user_001"
     }
     
-    print("\n📤 Sending request...")
-    print(f"Payload: {json.dumps(payload, indent=2)}")
+    print("\n📤 Sending request to API...")
+    print(f"User Description: {user_input[:100]}...")
     
     response = requests.post(f"{BASE_URL}/complete-meal-plan", json=payload)
     
@@ -79,10 +97,19 @@ def test_preference_endpoint():
     print("TEST 3: Preference Agent Endpoint")
     print("="*80)
     
+    print("\n📝 Enter your dietary preferences:")
+    user_input = input("Your description: ").strip()
+    
+    if not user_input:
+        print("⚠️  No input. Using default example...")
+        user_input = "I'm vegan, need 1800 calories, 90g protein, allergic to soy"
+    
     payload = {
-        "user_description": "I'm vegan, need 1800 calories, 90g protein, allergic to soy",
+        "user_description": user_input,
         "user_id": "test_user_002"
     }
+    
+    print(f"\n📤 Sending: {user_input[:80]}...")
     
     response = requests.post(f"{BASE_URL}/preference", json=payload)
     
@@ -104,10 +131,19 @@ def test_preference_to_recipe():
     print("TEST 4: Preference → Recipe Workflow")
     print("="*80)
     
+    print("\n📝 Enter your preferences for recipe generation:")
+    user_input = input("Your description: ").strip()
+    
+    if not user_input:
+        print("⚠️  No input. Using default example...")
+        user_input = "Vegetarian, Italian food lover, 2200 calories, 3 meals"
+    
     payload = {
-        "user_description": "Vegetarian, Italian food lover, 2200 calories, 3 meals",
+        "user_description": user_input,
         "user_id": "test_user_003"
     }
+    
+    print(f"\n📤 Sending: {user_input[:80]}...")
     
     response = requests.post(f"{BASE_URL}/preference-to-recipe", json=payload)
     
@@ -134,6 +170,9 @@ def main():
     print("="*80)
     print("\n⚠️  Make sure the API server is running on http://localhost:8000")
     print("   Run: python main.py")
+    print("\n" + "="*80)
+    print("INTERACTIVE MODE - You will be asked for your preferences")
+    print("="*80)
     print("\nPress Enter to continue...")
     input()
     
