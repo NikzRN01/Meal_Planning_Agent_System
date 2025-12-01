@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import defaultdict
 from typing import Dict
 from models.schema import WeekPlan, Ingredient, UserHealthProfile
@@ -43,6 +44,121 @@ class ShoppingBudgetAgent:
             factor = ing.quantity / 100.0 if ing.unit in ("g", "ml") else ing.quantity
             total_cost += unit_price * factor
         return round(total_cost, 2)
+
+
+    # Code: TJ
+    """
+    Optional advanced Shopping & Budget Agent (live pricing via scraping).
+    Kept here per request, but guarded so core imports remain safe.
+    """
+
+    import re as _re
+    from typing import Any as _Any, Dict as _Dict, List as _List, Optional as _Optional
+
+    _HAS_SCRAPE_DEPS = False
+    try:
+        import requests as _requests
+        from bs4 import BeautifulSoup as _BeautifulSoup
+        from urllib.parse import quote_plus as _quote_plus
+        _HAS_SCRAPE_DEPS = True
+    except Exception:
+        _requests = _BeautifulSoup = _quote_plus = None
+
+
+    def _normalize_name_adv(name: str) -> str:
+        n = name.lower().strip()
+        if "," in n:
+            n = n.split(",", 1)[0].strip()
+        return n
+
+
+    if _HAS_SCRAPE_DEPS:
+        class LivePriceFetcher:
+            BASE_URL = "https://www.flipkart.com/search?q="
+
+            def __init__(self, user_agent: _Optional[str] = None):
+                if user_agent is None:
+                    user_agent = (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/121.0.0.0 Safari/537.36"
+                    )
+                self.headers = {"User-Agent": user_agent}
+
+            def fetch_price(self, query: str) -> _Optional[_Dict[str, _Any]]:
+                url = self.BASE_URL + _quote_plus(query)
+                try:
+                    resp = _requests.get(url, headers=self.headers, timeout=10)
+                except Exception:
+                    return None
+                if resp.status_code != 200:
+                    return None
+                soup = _BeautifulSoup(resp.text, "html.parser")
+                product_card = soup.select_one("div[data-id]") or soup.select_one("a._1fQZEK, a.s1Q9rs, a.IRpwTa")
+                if not product_card:
+                    return None
+                price_elem = product_card.select_one("div._30jeq3") or soup.select_one("div._30jeq3")
+                if not price_elem:
+                    return None
+                price_digits = _re.sub(r"[^\d.]", "", price_elem.get_text(strip=True))
+                try:
+                    price_value = float(price_digits)
+                except Exception:
+                    return None
+                return {"query": query, "price": price_value}
+
+
+    class ShoppingBudgetAgentAdvanced:
+        """Non-core advanced agent; requires scraping deps at runtime to fetch prices."""
+
+        def __init__(self, currency: str = "INR"):
+            self.currency = currency
+            self.price_fetcher = LivePriceFetcher() if _HAS_SCRAPE_DEPS else None
+
+        def process_recipe_ingredients(
+            self,
+            recipe_data: _Dict[str, _Any],
+            stores: _List[str],
+            budget: _Optional[float] = None,
+        ) -> _Dict[str, _Any]:
+            ingredients_section = recipe_data.get("ingredients", {})
+            if not isinstance(ingredients_section, dict):
+                ingredients_section = {}
+
+            all_lines: _List[str] = []
+            for _, lines in ingredients_section.items():
+                if isinstance(lines, list):
+                    all_lines.extend(lines)
+
+            items: _List[_Dict[str, _Any]] = []
+            total_cost = 0.0
+            items_without_price: _List[str] = []
+
+            for line in all_lines:
+                base_name = _normalize_name_adv(line)
+                price_info = self.price_fetcher.fetch_price(base_name) if self.price_fetcher else None
+                if not price_info:
+                    items_without_price.append(base_name)
+                    continue
+                total_cost += price_info["price"]
+                items.append({
+                    "ingredient_display_name": base_name,
+                    "price": price_info["price"],
+                    "currency": self.currency,
+                })
+
+            within_budget = None if budget is None else total_cost <= budget
+            return {
+                "recipe_name": recipe_data.get("recipe_name", "Unknown Recipe"),
+                "currency": self.currency,
+                "items": items,
+                "estimated_total_cost": round(total_cost, 2),
+                "budget": budget,
+                "within_budget": within_budget,
+                "amount_over_budget": None if budget is None else max(0.0, round(total_cost - budget, 2)),
+                "amount_under_budget": None if budget is None else max(0.0, round(budget - total_cost, 2)),
+                "items_without_price": items_without_price,
+            }
 
 
 # Code: TJ

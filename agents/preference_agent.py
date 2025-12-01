@@ -40,14 +40,18 @@ import json
 import os
 from typing import Dict, Any, List
 
-from google.adk.agents import Agent
-from google.adk.models.google_llm import Gemini
-from google.adk.runners import InMemoryRunner
-from google.genai import types
-from dotenv import load_dotenv
-
-print("🤖 ADK Components imported!\n")
-load_dotenv()
+try:
+    from google.adk.agents import Agent
+    from google.adk.models.google_llm import Gemini
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types
+    from dotenv import load_dotenv
+    ADK_AVAILABLE = True
+    print("🤖 ADK Components imported!\n")
+    load_dotenv()
+except Exception:
+    ADK_AVAILABLE = False
+    Agent = Gemini = InMemoryRunner = types = None
 
 
 # ===============================
@@ -70,22 +74,26 @@ setup_api_key()
 # ===============================
 # Retry Configuration
 # ===============================
-retry_config = types.HttpRetryOptions(
-    attempts=5,
-    exp_base=7,
-    initial_delay=1,
-    http_status_codes=[429, 500, 503, 504],
-)
+if ADK_AVAILABLE:
+    retry_config = types.HttpRetryOptions(
+        attempts=5,
+        exp_base=7,
+        initial_delay=1,
+        http_status_codes=[429, 500, 503, 504],
+    )
+else:
+    retry_config = None
 
 
 # ===============================
 # PreferenceAgent (LLM Agent)
 # ===============================
 
-preference_agent = Agent(
-    name="PreferenceAgent",
-    model=Gemini(model="gemini-2.0-flash-lite", retry_options=retry_config),
-    instruction="""
+if ADK_AVAILABLE:
+    preference_agent = Agent(
+        name="PreferenceAgent",
+        model=Gemini(model="gemini-2.0-flash-lite", retry_options=retry_config),
+        instruction="""
 You are a Preference Agent in a multi-agent meal planning system.
 
 Your job:
@@ -142,18 +150,21 @@ CRITICAL:
 - All fields MUST be present.
 - All numbers MUST be plain numbers (no quotes, no 'kcal', no 'g'), or null if unknown.
 """,
-    tools=[],
-    output_key="user_profile"
-)
+        tools=[],
+        output_key="user_profile"
+    )
 
-print("✅ PreferenceAgent created.\n")
+    print("✅ PreferenceAgent created.\n")
+else:
+    preference_agent = None
 
 
 # ===============================
 # PreferenceAgentRunner
 # ===============================
 
-class PreferenceAgentRunner:
+if ADK_AVAILABLE:
+    class PreferenceAgentRunner:
     """Interactive terminal-based runner for preference agent."""
 
     def __init__(self, agent: Agent):
@@ -215,6 +226,11 @@ User description:
         print("="*60 + "\n")
         
         return profile_json
+
+else:
+    class PreferenceAgentRunner:  # type: ignore
+        def __init__(self, *_, **__):  # pragma: no cover
+            raise ImportError("Google ADK not installed; interactive PreferenceAgent unavailable.")
 
     def _parse_output(self, result: Any) -> Dict[str, Any]:
         """Parse agent output and extract JSON."""
@@ -382,7 +398,7 @@ async def main():
         # Display the final profile
         pref_runner.display_profile(user_id)
 
-if __name__ == "__main__":
+if __name__ == "__main__" and ADK_AVAILABLE:
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

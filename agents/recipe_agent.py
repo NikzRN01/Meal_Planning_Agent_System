@@ -80,6 +80,105 @@ class RecipeAgent:
 
         return WeekPlan(days=days)
 
+
+# Code: TJ
+"""
+Recipe Agent for Meal Planning System
+
+This agent receives input from the Preference Agent and:
+1. Fetches recipes based on preferences using Google Search
+2. Extracts ingredients for Shopping & Budget Agent
+3. Extracts nutritional info for Health Agent
+4. Outputs structured JSON data for downstream agents
+"""
+
+# Optional ADK-based runner (guarded imports)
+import asyncio as _asyncio
+from typing import Dict as _Dict, Any as _Any
+
+_HAS_ADK_RECIPE = False
+try:
+    from google.adk.agents import Agent as _Agent
+    from google.adk.models.google_llm import Gemini as _Gemini
+    from google.adk.runners import InMemoryRunner as _InMemoryRunner
+    from google.adk.tools import google_search as _google_search
+    from google.genai import types as _types
+    from dotenv import load_dotenv as _load_dotenv
+    import json as _json
+    import os as _os
+
+    _load_dotenv()
+    _HAS_ADK_RECIPE = True
+except Exception:
+    _Agent = _Gemini = _InMemoryRunner = _google_search = _types = None
+
+
+if _HAS_ADK_RECIPE:
+    _retry_config = _types.HttpRetryOptions(
+        attempts=5, exp_base=7, initial_delay=1, http_status_codes=[429, 500, 503, 504]
+    )
+
+    recipe_agent = _Agent(
+        name="RecipeAgent",
+        model=_Gemini(model="gemini-2.0-flash-lite", retry_options=_retry_config),
+        instruction=(
+            "You are a Recipe Agent. Return ONLY valid JSON with recipe_name, description,"
+            " ingredients (object of section->list), instructions (array of steps),"
+            " nutritional_information (serving_size, calories, macros)."
+        ),
+        tools=[_google_search],
+        output_key="recipe_data",
+    )
+
+    class RecipeAgentRunner:
+        """Runner class for Recipe Agent with helper methods"""
+
+        def __init__(self, agent: _Agent):
+            self.agent = agent
+            self.runner = _InMemoryRunner(agent=agent, app_name="RecipeAgentApp")
+
+        async def fetch_recipe(self, preferences: _Dict[str, _Any]) -> _Dict[str, _Any]:
+            query = self._build_query(preferences)
+            result = await self.runner.run_debug(query)
+            return self._parse_output(result)
+
+        def _build_query(self, preferences: _Dict[str, _Any]) -> str:
+            parts = ["Find a recipe for"]
+            if "meal_type" in preferences:
+                parts.append(preferences["meal_type"])
+            if "cuisine_preferences" in preferences and preferences["cuisine_preferences"]:
+                parts.append(preferences["cuisine_preferences"][0])
+            if "dietary_restrictions" in preferences and preferences["dietary_restrictions"]:
+                parts.append("that is " + " and ".join(preferences["dietary_restrictions"]))
+            parts.append("with ingredients, instructions, and nutritional information")
+            return " ".join(parts)
+
+        def _parse_output(self, result: _Any) -> _Dict[str, _Any]:
+            json_string_output = None
+            if isinstance(result, list) and result:
+                event = result[0]
+                json_string_output = event.actions.state_delta.get("recipe_data")
+            if not json_string_output:
+                return {"error": "No recipe_data found in output", "raw_result": str(result)[:500]}
+            try:
+                if json_string_output.startswith("```json"):
+                    json_string_output = json_string_output.split("```", 2)[-1]
+                return _json.loads(json_string_output)
+            except Exception as e:
+                return {"error": str(e), "raw_output": json_string_output}
+
+    async def _example_usage() -> None:
+        runner = RecipeAgentRunner(recipe_agent)
+        prefs = {"dietary_restrictions": ["vegetarian"], "cuisine_preferences": ["Italian"], "meal_type": "dinner"}
+        data = await runner.fetch_recipe(prefs)
+        print(_json.dumps(data, indent=2))
+
+    if __name__ == "__main__":
+        try:
+            _asyncio.run(_example_usage())
+        except KeyboardInterrupt:
+            print("\nCancelled")
+
 # Code: TJ
 """
 Recipe Agent for Meal Planning System
