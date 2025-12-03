@@ -48,7 +48,6 @@ async def test_preference_to_recipe():
     print(f"\n📝 User Description:\n{user_description}\n")
     
     # Step 1: Create profile using Preference Agent
-    print("⏳ Running Preference Agent...")
     prompt = f"""
 The user will describe their diet, lifestyle and health precautions.
 
@@ -63,7 +62,7 @@ User description:
         print(f"❌ Error: {profile_data['error']}")
         return None
     
-    print("\n✅ Profile Created:")
+    print("\nProfile Created:")
     print(f"   Diet Type: {profile_data.get('diet_type')}")
     print(f"   Daily Calories: {profile_data.get('daily_calorie_target')}")
     print(f"   Protein Target: {profile_data.get('protein_target_g')}g")
