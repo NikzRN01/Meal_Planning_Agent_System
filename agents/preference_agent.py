@@ -20,7 +20,6 @@ try:
     from google.adk.runners import InMemoryRunner, Runner
     from google.adk.memory import InMemoryMemoryService
     from google.adk.sessions import InMemorySessionService
-    from google.adk.tools import load_memory
     from google.genai import types
     from dotenv import load_dotenv
     ADK_AVAILABLE = True
@@ -28,7 +27,6 @@ try:
 except Exception:
     ADK_AVAILABLE = False
     Agent = Gemini = InMemoryRunner = Runner = types = load_memory = None
-
 
 # ===============================
 # API Key Setup
@@ -137,9 +135,8 @@ CRITICAL:
 - Only output JSON. No explanations, no markdown, no code fences.
 - All fields MUST be present.
 - All numbers MUST be plain numbers (no quotes, no 'kcal', no 'g'), or null if unknown.
-- Use load_memory tool to recall past user preferences when asked.
 """,
-        tools=[load_memory],
+        tools=[],
         output_key="user_profile"
     )
 

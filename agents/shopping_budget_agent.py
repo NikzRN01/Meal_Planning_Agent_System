@@ -7,10 +7,10 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
-from google.adk.runners import InMemoryRunner, Runner
+from google.adk.runners import Runner
 from google.adk.memory import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import google_search, load_memory
+from google.adk.tools import google_search
 from google.genai import types
 
 load_dotenv()
@@ -82,9 +82,8 @@ Rules:
 - Use google_search for pricing and URLs; do not invent prices or links.
 - Instructions must be helpful and sequential, starting at step 1.
 - Provide serving_size and a reasonable nutrition range.
-- Use load_memory to recall past shopping data when relevant.
 """,
-    tools=[google_search, load_memory],
+    tools=[google_search],
     output_key="recipe_data",
 )
 

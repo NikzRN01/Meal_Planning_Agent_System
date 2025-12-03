@@ -13,10 +13,10 @@ This agent receives input from the Preference Agent and:
 import asyncio
 from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
-from google.adk.runners import InMemoryRunner, Runner
+from google.adk.runners import Runner, InMemoryRunner
 from google.adk.memory import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import google_search, load_memory
+from google.adk.tools import google_search
 from google.genai import types
 from dotenv import load_dotenv
 import json
@@ -117,8 +117,8 @@ IMPORTANT RULES:
 8. Provide serving size and estimated nutritional information
 9. Use ranges for nutritional values when appropriate (e.g., "450-550 calories")
 10. Ensure all JSON is properly formatted with correct commas, quotes, and brackets
-11. Use load_memory tool to recall past recipes or user preferences when relevant""",
-    tools=[google_search, load_memory],
+""",
+    tools=[google_search],
     output_key="recipe_data",
 )
 
