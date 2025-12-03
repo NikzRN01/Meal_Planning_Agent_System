@@ -366,9 +366,8 @@ async def get_shopping_list(ingredients_data: IngredientsRequest):
         }
         
         # Process ingredients and get shopping plan
-        shopping_plan = shopping_agent.process_recipe_ingredients(
-            recipe_data=recipe_data,
-            stores=ingredients_data.stores,
+        shopping_plan = shopping_agent.process(
+            recipe=recipe_data,
             budget=ingredients_data.budget
         )
         
@@ -631,7 +630,7 @@ User description:
                 "health_status": "Profile-based recommendations provided",
                 "key_recommendations": recommendations[:3] if recommendations else []
             },
-            "message": "Complete meal plan created successfully with all agent integrations"
+            "message": "Complete meal plan generated"
         }
     
     except Exception as e:

@@ -1,4 +1,3 @@
-## Code: Pratham 
 """
 Preference Agent for Meal Planning System (Interactive Terminal Agent)
 
@@ -22,7 +21,6 @@ try:
     from google.genai import types
     from dotenv import load_dotenv
     ADK_AVAILABLE = True
-    print("🤖 ADK Components imported!\n")
     load_dotenv()
 except Exception:
     ADK_AVAILABLE = False
@@ -36,10 +34,8 @@ def setup_api_key():
     """Setup Google API key from environment."""
     try:
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-        if GOOGLE_API_KEY:
-            print("✅ Gemini API key setup complete.\n")
-        else:
-            print("⚠️ Warning: GOOGLE_API_KEY not found. Please set it in environment variables.\n")
+        if not GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY not found in environment.")
     except Exception as e:
         print(f"🔑 Authentication Error: {e}\n")
 
@@ -51,9 +47,10 @@ setup_api_key()
 # ===============================
 if ADK_AVAILABLE:
     retry_config = types.HttpRetryOptions(
-        attempts=5,
-        exp_base=7,
-        initial_delay=1,
+        attempts=8,
+        exp_base=10,
+        initial_delay=3,
+        max_delay=60,
         http_status_codes=[429, 500, 503, 504],
     )
 else:
@@ -129,10 +126,8 @@ CRITICAL:
         output_key="user_profile"
     )
 
-    print("✅ PreferenceAgent created.\n")
 else:
     preference_agent = None
-
 
 # ===============================
 # PreferenceAgentRunner
@@ -142,7 +137,7 @@ if ADK_AVAILABLE:
     class PreferenceAgentRunner:
         """Interactive terminal-based runner for preference agent."""
 
-        def __init__(self, agent: Agent):
+        def __init__(self, agent: Any):
             self.agent = agent
             self.runner = InMemoryRunner(agent=agent, app_name="PreferenceAgentApp")
             self._profiles: Dict[str, Dict[str, Any]] = {}
@@ -156,50 +151,21 @@ if ADK_AVAILABLE:
             4. Interactively fill missing fields
             5. Store and return profile
             """
-            print("\n" + "="*60)
-            print("🍽️  WELCOME TO THE MEAL PLANNING SYSTEM")
-            print("="*60 + "\n")
-            
-            print("👋 Hello! I'm your Preference Agent.")
-            print("I'll help build your personalized meal planning profile.\n")
-            
-            print("📝 Please describe your diet, lifestyle, and any health concerns.")
-            print("(You can mention: diet type, calorie goals, allergies, dislikes, health notes)\n")
-            
             user_description = input("Your description: ").strip()
-            
-            if not user_description:
-                print("❌ Please provide a description.")
-                return None
-            
-            print("\n⏳ Analyzing your preferences...\n")
-            
-            # Call PreferenceAgent
-            prompt = f"""
-The user will describe their diet, lifestyle and health precautions.
-
-User description:
-\"\"\"{user_description}\"\"\"
-"""
-            result = await self.runner.run_debug(prompt)
-            profile_json = self._parse_output(result)
+            profile_json = await self.runner.run(user_description)
             
             if "error" in profile_json:
                 print(f"❌ Error: {profile_json['error']}")
                 return None
-            
-            print("✅ Initial profile extracted!\n")
             
             # Interactive completion
             profile_json = self._fill_missing_fields_interactively(profile_json)
             
             # Store profile
             self._profiles[user_id] = profile_json
-            
-            print("\n" + "="*60)
-            print("✅ YOUR PROFILE HAS BEEN SAVED!")
-            print("="*60 + "\n")
-            
+            print("Great! I’ve saved your profile.")
+            print("From now on, I’ll suggest meals that match your preferences and goals.")
+
             return profile_json
 
         def _parse_output(self, result: Any) -> Dict[str, Any]:
@@ -250,7 +216,8 @@ User description:
 
             # 1) diet_type
             if profile["diet_type"] is None:
-                val = input("🥗 Diet type (vegetarian/vegan/omnivore/keto): ").strip()
+                val = input("🥗 What kind of diet do you usually follow? (e.g., vegetarian, vegan, keto, or just a mix): ").strip()
+
                 profile["diet_type"] = val if val else "omnivore"
 
             # Helper to get a positive integer
@@ -345,38 +312,16 @@ User description:
         def display_profile(self, user_id: str):
             """Display the stored profile in a nice format."""
             profile = self.get_profile(user_id)
-            print("\n" + "="*60)
-            print("📊 YOUR MEAL PLANNING PROFILE")
-            print("="*60)
-            print(json.dumps(profile, indent=2))
-            print("="*60 + "\n")
+            print("\nYOUR MEAL PLANNING PROFILE\n")
+            print(f"Diet: {profile['diet_type']}")
+            print(f"Calories per day: {profile['daily_calorie_target']} kcal")
+            print(f"Protein: {profile['protein_target_g']} g | Carbs: {profile['carb_target_g']} g | Fat: {profile['fat_target_g']} g")
+            print(f"Meals per day: {profile['meals_per_day']}")
+            print(f"Allergies: {', '.join(profile['allergies']) if profile['allergies'] else 'None'}")
+            print(f"Dislikes: {', '.join(profile['dislikes']) if profile['dislikes'] else 'None'}")
+            print(f"Health notes: {', '.join(profile['health_notes']) if profile['health_notes'] else 'None'}")
 
 else:
     class PreferenceAgentRunner:  # type: ignore
         def __init__(self, *_, **__):  # pragma: no cover
             raise ImportError("Google ADK not installed; interactive PreferenceAgent unavailable.")
-
-
-# ===============================
-# Main execution
-# ===============================
-
-async def main():
-    """Main interactive agent loop."""
-    pref_runner = PreferenceAgentRunner(preference_agent)
-    
-    # Start interactive session
-    user_id = "user_001"
-    profile = await pref_runner.start_interactive_session(user_id)
-    
-    if profile:
-        # Display the final profile
-        pref_runner.display_profile(user_id)
-
-if __name__ == "__main__" and ADK_AVAILABLE:
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n\n👋 Session ended. Goodbye!")
-    except Exception as e:
-        print(f"\n❌ Error: {e}")

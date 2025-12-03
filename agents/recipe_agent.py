@@ -21,7 +21,6 @@ import json
 import os
 from typing import Dict, List, Any
 
-print("ADK Component imported!\n")
 load_dotenv()
 
 
@@ -30,26 +29,19 @@ def setup_api_key():
     """Setup Google API key from various sources"""
     try:
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-        print("✅ Gemini API key setup complete (Colab).")
-    except ImportError:
-        # Fallback to environment variable
-        if "GOOGLE_API_KEY" in os.environ:
-            print("✅ Gemini API key setup complete (Environment).")
-        else:
-            print(
-                "⚠️ Warning: GOOGLE_API_KEY not found. Please set it in environment variables."
-            )
+        if not GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY not found in environment variables.")
     except Exception as e:
-        print(f"🔑 Authentication Error: {e}")
-
+        print(f"Authentication Error: {e}")
 
 setup_api_key()
 
 # Configure retry options
 retry_config = types.HttpRetryOptions(
-    attempts=5,  # Maximum retry attempts
-    exp_base=7,  # Delay multiplier
-    initial_delay=1,
+    attempts=8,  # Maximum retry attempts
+    exp_base=10,  # Delay multiplier
+    initial_delay=3,
+    max_delay=60,
     http_status_codes=[429, 500, 503, 504],  # Retry on these HTTP errors
 )
 
@@ -119,9 +111,6 @@ IMPORTANT RULES:
     tools=[google_search],
     output_key="recipe_data",
 )
-
-print("✅ RecipeAgent created.")
-
 
 class RecipeAgentRunner:
     """Runner class for Recipe Agent with helper methods"""
@@ -254,41 +243,3 @@ class RecipeAgentRunner:
             "recipe_name": recipe_data.get("recipe_name", "Unknown"),
             "nutritional_information": recipe_data.get("nutritional_information", {}),
         }
-
-# Example usage function
-async def example_usage():
-    """Example of how to use the Recipe Agent"""
-
-    # Initialize the runner
-    runner = RecipeAgentRunner(recipe_agent)
-
-    # Example preferences from Preference Agent
-    preferences = {
-        "dietary_restrictions": ["vegetarian"],
-        "cuisine_preferences": ["Italian"],
-        "meal_type": "dinner",
-        "servings": 4,
-        "budget_per_meal": 25,
-    }
-
-    # Fetch recipe
-    print("\n🔍 Fetching recipe based on preferences...")
-    recipe_data = await runner.fetch_recipe(preferences)
-
-    print("\n📋 Recipe Data:")
-    print(json.dumps(recipe_data, indent=2))
-
-    # Extract data for other agents
-    ingredients_json = runner.get_ingredients_for_shopping(recipe_data)
-    print("\n🛒 Ingredients for Shopping & Budget Agent:")
-    print(json.dumps(ingredients_json, indent=2))
-
-    nutrition_json = runner.get_nutrition_for_health(recipe_data)
-    print("\n💊 Nutrition for Health Agent:")
-    print(json.dumps(nutrition_json, indent=2))
-
-    return recipe_data
-
-
-# Uncomment to run example (requires async environment)
-# asyncio.run(example_usage())

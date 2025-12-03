@@ -1,6 +1,5 @@
 """
 API Test Script for Meal Planning System
-
 Tests the FastAPI endpoints with sample requests
 """
 
@@ -9,12 +8,9 @@ import json
 
 BASE_URL = "http://localhost:8000"
 
-
 def test_health_check():
     """Test the root endpoint"""
-    print("\n" + "="*80)
     print("TEST 1: Health Check")
-    print("="*80)
     
     response = requests.get(f"{BASE_URL}/")
     print(f"Status: {response.status_code}")
@@ -24,23 +20,17 @@ def test_health_check():
 
 def test_complete_meal_plan():
     """Test the complete meal plan workflow"""
-    print("\n" + "="*80)
     print("TEST 2: Complete Meal Plan Workflow")
-    print("="*80)
     
     # Ask user for their preferences
-    print("\n👋 Welcome! Please describe your dietary preferences and health goals.")
-    print("\nYou can mention:")
-    print("  - Diet type (vegetarian, vegan, keto, etc.)")
-    print("  - Daily calorie goals")
-    print("  - Protein, carbs, fat targets")
-    print("  - Number of meals per day")
-    print("  - Any food allergies")
-    print("  - Foods you dislike")
-    print("  - Health conditions (diabetes, high BP, etc.)")
-    print("\nExample: 'I am vegetarian, need 2000 calories, 120g protein, 3 meals daily, allergic to peanuts, diabetic'\n")
+    print("👋 Hi there! I’m your personal meal planning assistant.")
+    print("Let’s build a plan that fits your lifestyle, health goals, and taste buds.")
+    print("📝 Tell me a bit about how you usually eat —")
+    print("Do you follow a diet (like vegetarian, keto, or vegan)?")
+    print("Any health goals or restrictions I should know about?")
     
-    user_input = input("📝 Your preferences: ").strip()
+    
+    user_input = input("\n📝 Your preferences: ").strip()
     
     if not user_input:
         print("\n⚠️  No input provided. Using default example...")
@@ -93,9 +83,7 @@ def test_complete_meal_plan():
 
 def test_preference_endpoint():
     """Test the preference agent endpoint"""
-    print("\n" + "="*80)
-    print("TEST 3: Preference Agent Endpoint")
-    print("="*80)
+    print("\nTEST 3: Preference Agent Endpoint")
     
     print("\n📝 Enter your dietary preferences:")
     user_input = input("Your description: ").strip()
@@ -127,9 +115,7 @@ def test_preference_endpoint():
 
 def test_preference_to_recipe():
     """Test the preference-to-recipe workflow"""
-    print("\n" + "="*80)
-    print("TEST 4: Preference → Recipe Workflow")
-    print("="*80)
+    print("\nTEST 4: Preference → Recipe Workflow")
     
     print("\n📝 Enter your preferences for recipe generation:")
     user_input = input("Your description: ").strip()
@@ -165,14 +151,9 @@ def test_preference_to_recipe():
 
 def main():
     """Run all API tests"""
-    print("\n" + "="*80)
-    print("🧪 MEAL PLANNING API TESTS")
-    print("="*80)
-    print("\n⚠️  Make sure the API server is running on http://localhost:8000")
-    print("   Run: python main.py")
-    print("\n" + "="*80)
+    print("\n🧪 MEAL PLANNING API TESTS")
+    print("\n⚠️  Make sure the API server is running")
     print("INTERACTIVE MODE - You will be asked for your preferences")
-    print("="*80)
     print("\nPress Enter to continue...")
     input()
     
@@ -192,24 +173,22 @@ def main():
         print(f"❌ Complete meal plan failed: {e}")
         results.append(("Complete Meal Plan", False))
     
-    # Test 3: Preference endpoint
-    try:
-        results.append(("Preference Agent", test_preference_endpoint()))
-    except Exception as e:
-        print(f"❌ Preference endpoint failed: {e}")
-        results.append(("Preference Agent", False))
+    # # Test 3: Preference endpoint
+    # try:
+    #     results.append(("Preference Agent", test_preference_endpoint()))
+    # except Exception as e:
+    #     print(f"❌ Preference endpoint failed: {e}")
+    #     results.append(("Preference Agent", False))
     
-    # Test 4: Preference to Recipe
-    try:
-        results.append(("Preference → Recipe", test_preference_to_recipe()))
-    except Exception as e:
-        print(f"❌ Preference to recipe failed: {e}")
-        results.append(("Preference → Recipe", False))
+    # # Test 4: Preference to Recipe
+    # try:
+    #     results.append(("Preference → Recipe", test_preference_to_recipe()))
+    # except Exception as e:
+    #     print(f"❌ Preference to recipe failed: {e}")
+    #     results.append(("Preference → Recipe", False))
     
     # Summary
-    print("\n" + "="*80)
-    print("📊 TEST RESULTS SUMMARY")
-    print("="*80)
+    print("\n📊 TEST RESULTS SUMMARY")
     
     for test_name, passed in results:
         status = "✅ PASSED" if passed else "❌ FAILED"

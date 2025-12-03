@@ -191,9 +191,7 @@ async def test_recipe_to_health(profile_data, recipe_data):
 
 async def test_complete_workflow():
     """Test: Complete workflow with Shopping Agent"""
-    print("\n" + "="*80)
-    print("TEST 3: COMPLETE WORKFLOW (Preference → Recipe → Shopping + Health)")
-    print("="*80 + "\n")
+    print("TEST COMPLETE WORKFLOW (Preference → Recipe → Shopping + Health)")
     
     # Run preference to recipe test first
     result = await test_preference_to_recipe()
@@ -211,70 +209,54 @@ async def test_complete_workflow():
         return
     
     # Test Shopping Agent
-    print("\n" + "="*80)
-    print("STEP 3: SHOPPING & BUDGET AGENT")
-    print("="*80 + "\n")
-    
     shopping_agent = ShoppingBudgetAgent(currency="INR")
     
     print("⏳ Running Shopping & Budget Agent...")
-    print("   (Fetching live prices from Amazon Grocery API...)\n")
+    print("   (Fetching live prices of grocery...)\n")
     
-    shopping_plan = shopping_agent.process_recipe_ingredients(
-        recipe_data=recipe_data,
-        stores=["Amazon", "Flipkart", "LocalStore"],
+    shopping_plan = shopping_agent.process(
+        recipe=recipe_data,
         budget=500.0
     )
     
-    print("✅ Shopping Plan Generated!\n")
     print("🛒 SHOPPING LIST DETAILS:")
-    print("="*60)
     
-    # Show categorized items
-    categorized_items = shopping_plan.get('categorized_items', [])
+    # Show items
+    items = shopping_plan.get('items', [])
     
-    if categorized_items:
-        current_category = None
-        for item in categorized_items:
-            category = item.get('category', 'Other')
-            
-            # Print category header
-            if category != current_category:
-                print(f"\n📦 {category.upper()}")
-                print("-" * 60)
-                current_category = category
-            
+    if items:
+        for item in items:
             # Print item details
-            name = item.get('name', 'Unknown')
-            quantity = item.get('quantity', '')
+            ingredient = item.get('ingredient', 'Unknown')
+            normalized = item.get('normalized', '')
+            qty = item.get('qty', '')
+            unit = item.get('unit', '')
             price = item.get('price', 0)
-            source = item.get('source', 'Estimated')
+            url = item.get('url', '')
             
-            print(f"   • {name} ({quantity})")
-            print(f"     Price: ₹{price:.2f} [{source}]")
+            print(f"\n   • {ingredient}")
+            if qty and unit:
+                print(f"     Quantity: {qty} {unit}")
+            print(f"     Price: ₹{price:.2f}")
+            if url:
+                print(f"     URL: {url}")
     
     # Show summary
-    print("\n" + "="*60)
-    print("💰 BUDGET SUMMARY:")
-    print("="*60)
-    print(f"   Total Items: {len(categorized_items)}")
+    print("BUDGET SUMMARY:")
+    print(f"   Total Items: {len(items)}")
     print(f"   Estimated Total: ₹{shopping_plan.get('estimated_total_cost', 0):.2f}")
     print(f"   Budget Limit: ₹{shopping_plan.get('budget', 500):.2f}")
-    print(f"   Within Budget: {'✅ YES' if shopping_plan.get('within_budget') else '❌ NO'}")
-    
-    if not shopping_plan.get('within_budget'):
-        print(f"   Over Budget By: ₹{shopping_plan.get('estimated_total_cost', 0) - shopping_plan.get('budget', 500):.2f}")
-    
-    # Show recommendations
-    recommendations = shopping_plan.get('recommendations', [])
-    if recommendations:
-        print(f"\n💡 Budget Recommendations:")
-        for i, rec in enumerate(recommendations, 1):
-            print(f"   {i}. {rec}")
-    
-    print("\n" + "="*80)
+    within_budget = shopping_plan.get('within_budget')
+    if within_budget is not None:
+        print(f"   Within Budget: {'YES' if within_budget else '❌ NO'}")
+        if not within_budget:
+            over = shopping_plan.get('amount_over_budget', 0)
+            print(f"   Over Budget By: ₹{over:.2f}")
+        else:
+            under = shopping_plan.get('amount_under_budget', 0)
+            print(f"   Under Budget By: ₹{under:.2f}")
+
     print("✅ COMPLETE WORKFLOW TEST PASSED!")
-    print("="*80 + "\n")
     
     print("📋 COMPLETE SUMMARY:")
     print("="*60)
@@ -287,7 +269,7 @@ async def test_complete_workflow():
     print(f"      - Ingredients: {sum(len(items) for items in recipe_data.get('ingredients', {}).values())} items")
     print(f"\n   ✓ Shopping List Generated")
     print(f"      - Total Cost: ₹{shopping_plan.get('estimated_total_cost', 0):.2f}")
-    print(f"      - Items: {len(categorized_items)}")
+    print(f"      - Items: {len(items)}")
     print(f"\n   ✓ Health Analysis Completed")
     print(f"      - Daily Targets Set")
     print(f"      - Recommendations Generated")
@@ -296,9 +278,7 @@ async def test_complete_workflow():
 
 async def main():
     """Run all integration tests"""
-    print("\n" + "="*80)
-    print("🧪 MEAL PLANNING AGENT INTEGRATION TESTS")
-    print("="*80 + "\n")
+    print("\n🧪 MEAL PLANNING AGENT INTEGRATION TESTS\n")
     
     print("Choose test mode:")
     print("1. Interactive (you provide preferences)")
