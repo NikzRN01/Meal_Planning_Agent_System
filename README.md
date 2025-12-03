@@ -72,7 +72,6 @@ pip install -r requirements.txt
 Create a `.env` file:
 ```
 GOOGLE_API_KEY=your_gemini_api_key_here
-RAPIDAPI_KEY=your_rapidapi_key_here
 ```
 
 ### 3. Start the Server
@@ -170,7 +169,6 @@ print(f"Total Cost: ₹{data['data']['shopping_plan']['estimated_total_cost']}")
 - **Orchestration**: Sequential Agent (Google ADK)
 - **Memory**: InMemoryMemoryService (session-based context)
 - **Tools**: Google Search API
-- **Pricing API**: RapidAPI Amazon Grocery API
 - **Data Validation**: Pydantic
 - **Server**: Uvicorn
 
@@ -193,8 +191,6 @@ meal_planner_agent/
 ├── models/
 │   └── schema.py               # Pydantic data models
 ├── main.py                     # FastAPI server with Sequential Agent
-├── test_api.py                 # API endpoint tests (interactive)
-├── test_integration.py         # Direct agent tests (legacy)
 ├── .env                        # API keys (create this)
 ├── .gitignore                  # Git ignore rules
 └── requirements.txt            # Python dependencies
@@ -230,8 +226,6 @@ meal_planner_agent/
 ### 3. Shopping & Budget Agent
 - Ingredient parsing from recipe format
 - Category classification (vegetables, proteins, grains, etc.)
-- Live price fetching from Amazon Grocery API
-- Fallback to estimated prices when API unavailable
 - Budget analysis and recommendations
 
 ### 4. Health Agent
@@ -275,7 +269,7 @@ MIT License
 
 ## 👥 Contributors
 
-- **NikzRN01** - Initial development
+- **NikzRN01** - Initial development & Health Agent implementation
 - **TJ** - Recipe Agent & Shopping Agent implementation
 - **Pratham** - Preference Agent implementation
 
