@@ -1,4 +1,3 @@
-# Code : TJ
 """
 Main API server for Meal Planner Agent System
 
@@ -46,7 +45,6 @@ recipe_runner = RecipeAgentRunner(recipe_agent)
 shopping_agent = ShoppingBudgetAgent(currency="INR")
 preference_runner = PreferenceAgentRunner(preference_agent)
 health_agent = HealthAgent()
-
 
 # =========================
 #   REQUEST/RESPONSE MODELS
@@ -344,32 +342,6 @@ async def get_recipe(preferences: PreferenceRequest):
         )
 
 
-@app.get("/recipe/example")
-async def get_recipe_example():
-    """Get an example recipe (for testing)"""
-    try:
-        example_prefs = {
-            "dietary_restrictions": ["vegetarian"],
-            "cuisine_preferences": ["Italian"],
-            "meal_type": "dinner",
-            "servings": 4,
-            "budget_per_meal": 25
-        }
-        
-        recipe_data = await recipe_runner.fetch_recipe(example_prefs)
-        
-        return {
-            "success": True,
-            "data": recipe_data,
-            "message": "Example recipe fetched successfully"
-        }
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching example recipe: {str(e)}"
-        )
-
 
 # =========================
 #   SHOPPING & BUDGET AGENT ENDPOINTS
@@ -601,9 +573,8 @@ User description:
         # STEP 3: SHOPPING & BUDGET AGENT
         # ==========================================
         budget = 500.0  # Default budget
-        shopping_plan = shopping_agent.process_recipe_ingredients(
-            recipe_data=recipe_data,
-            stores=["Amazon", "Flipkart", "LocalStore"],
+        shopping_plan = shopping_agent.process(
+            recipe=recipe_data,
             budget=budget
         )
         
@@ -669,96 +640,14 @@ User description:
             detail=f"Error in complete meal plan workflow: {str(e)}"
         )
 
-
-@app.post("/meal-plan")
-async def create_meal_plan(preferences: PreferenceRequest):
-    """
-    Complete workflow: Get recipe and forward data to other agents
-    
-    Args:
-        preferences: User dietary preferences and requirements
-    
-    Returns:
-        Complete meal plan with recipe, shopping list, and health analysis
-    """
-    try:
-        # Step 1: Get recipe from Recipe Agent
-        prefs_dict = preferences.model_dump()
-        recipe_data = await recipe_runner.fetch_recipe(prefs_dict)
-        
-        if "error" in recipe_data:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Recipe Agent Error: {recipe_data.get('error')}"
-            )
-        
-        # Step 2: Extract ingredients for Shopping & Budget Agent
-        ingredients_for_shopping = recipe_runner.get_ingredients_for_shopping(recipe_data)
-        
-        # Step 3: Generate shopping list with pricing
-        budget = prefs_dict.get("budget_per_meal", 500.0)
-        shopping_plan = shopping_agent.process_recipe_ingredients(
-            recipe_data=recipe_data,
-            stores=["Amazon", "Flipkart", "LocalStore"],
-            budget=budget
-        )
-        
-        # Step 4: Extract nutrition for Health Agent
-        nutrition_for_health = recipe_runner.get_nutrition_for_health(recipe_data)
-        
-        # Step 5: Return combined response
-        return {
-            "success": True,
-            "data": {
-                "recipe": recipe_data,
-                "shopping_plan": shopping_plan,
-                "nutrition_for_health": nutrition_for_health
-            },
-            "message": "Complete meal plan created successfully",
-            "summary": {
-                "recipe_name": recipe_data.get("recipe_name", "Unknown"),
-                "total_cost": shopping_plan.get("estimated_total_cost", 0),
-                "currency": shopping_plan.get("currency", "INR"),
-                "within_budget": shopping_plan.get("within_budget", True),
-                "budget_status": f"₹{shopping_plan.get('estimated_total_cost', 0):.2f} / ₹{budget:.2f}"
-            }
-        }
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error creating meal plan: {str(e)}"
-        )
-
-
 # =========================
 #   SERVER STARTUP
 # =========================
 
 if __name__ == "__main__":
     print("🚀 Starting Meal Planner Agent API (v2.0)...")
-    print("\n" + "="*60)
-    print("📋 AVAILABLE ENDPOINTS:")
-    print("="*60)
-    print("\n🔹 PREFERENCE AGENT:")
-    print("   - POST /preference (Create user profile)")
-    print("   - GET  /preference/{user_id} (Get stored profile)")
-    print("   - POST /preference-to-recipe (Preference → Recipe)")
-    print("\n🔹 RECIPE AGENT:")
-    print("   - POST /recipe (Get recipe from preferences)")
-    print("   - GET  /recipe/example (Get example recipe)")
-    print("\n🔹 SHOPPING & BUDGET AGENT:")
-    print("   - POST /shopping (Generate shopping list with pricing)")
-    print("\n🔹 HEALTH AGENT:")
-    print("   - POST /health (Analyze nutrition)")
-    print("   - POST /recipe-to-health (Recipe → Health analysis)")
-    print("\n🌟 COMPLETE WORKFLOWS:")
-    print("   - POST /complete-meal-plan (🎯 FULL: Preference → Recipe → Shopping + Health)")
-    print("   - POST /meal-plan (Recipe → Shopping + Nutrition)")
-    print("\n" + "="*60)
     print("🌐 Server running at: http://localhost:8000")
     print("📚 API Docs at: http://localhost:8000/docs")
-    print("📊 Health check: http://localhost:8000/")
-    print("="*60 + "\n")
+    print("📊 Health check: http://localhost:8000/\n")
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
