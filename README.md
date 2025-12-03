@@ -1,50 +1,71 @@
 # Meal Planning Agent System 🍽️
 
-A complete multi-agent AI system for personalized meal planning with recipe generation, shopping lists, and health analysis.
+A complete multi-agent AI system for personalized meal planning with recipe generation, shopping lists, and health analysis. Built using **Google ADK Sequential Agent** pattern for automatic workflow orchestration.
 
 ## 🌟 Features
 
+- **Sequential Agent Orchestration**: Automatic agent chaining with built-in error handling
 - **Preference Agent**: Parse natural language dietary preferences into structured profiles
 - **Recipe Agent**: Fetch recipes based on user preferences using Google Search + Gemini AI
 - **Shopping & Budget Agent**: Generate itemized shopping lists with live pricing from Amazon Grocery API
 - **Health Agent**: Analyze nutrition against user health goals and provide recommendations
+- **Memory Service**: Cross-session context and conversation recall
 
 ## 🏗️ Architecture
 
+### Sequential Agent Workflow
 ```
-User Input → Preference Agent → Recipe Agent → Shopping Agent
-                                             ↓
-                                        Health Agent
+User Input
+    ↓
+┌─────────────────────────────────────┐
+│  Sequential Agent Orchestrator      │
+├─────────────────────────────────────┤
+│  Step 1: Preference Agent           │
+│  → Parse user description           │
+│  → Create health profile            │
+├─────────────────────────────────────┤
+│  Step 2: Recipe Agent               │
+│  → Use profile to find recipe       │
+│  → Extract ingredients & nutrition  │
+├─────────────────────────────────────┤
+│  Step 3: Shopping Agent             │
+│  → Generate shopping list           │
+│  → Fetch live prices                │
+└─────────────────────────────────────┘
+    ↓
+Complete Meal Plan
 ```
 
-### Complete Workflow
-1. User describes preferences in natural language
-2. Preference Agent creates structured health profile
-3. Recipe Agent fetches personalized recipes
-4. Shopping Agent generates categorized shopping list with prices
-5. Health Agent provides nutrition analysis and recommendations
+**Why Sequential Agent?**
+- ✅ Automatic data flow between agents
+- ✅ Built-in error handling and retry logic
+- ✅ Automatic session and memory management
+- ✅ Cleaner, more maintainable code
+- ✅ Better performance (no network overhead vs A2A protocol)
 
 ## 📋 API Endpoints
 
-### Preference Agent
-- `POST /preference` - Create user profile from natural language
-- `GET /preference/{user_id}` - Retrieve stored user profile
+### Main Endpoint (Sequential Agent)
+- `POST /complete-meal-plan` - **RECOMMENDED**: Full workflow using Sequential Agent orchestration
+- `GET /` - Health check and API information
 
-### Recipe Agent
-- `POST /recipe` - Get recipe from structured preferences
-- `GET /recipe/example` - Get example recipe for testing
-
-### Shopping & Budget Agent
-- `POST /shopping` - Generate shopping list with live pricing
-
-### Health Agent
-- `POST /health` - Analyze nutritional information
-- `POST /recipe-to-health` - Compare recipe nutrition to user goals
-
-### Complete Workflows
-- `POST /complete-meal-plan` - **FULL WORKFLOW**: Preference → Recipe → Shopping + Health
+### Legacy Endpoints (Backward Compatible)
+- `POST /complete-meal-plan-legacy` - Old manual chaining approach
+- `POST /preference` - Individual preference agent
+- `POST /recipe` - Individual recipe agent  
+- `POST /shopping` - Individual shopping agent
+- `POST /health` - Individual health agent
 - `POST /preference-to-recipe` - Preference → Recipe workflow
 - `POST /meal-plan` - Recipe → Shopping + Nutrition workflow
+
+### Memory Endpoints
+- `POST /memory/save-session` - Save session to memory
+- `POST /memory/search` - Search past conversations
+- `GET /memory/stats` - Memory statistics
+
+### Individual Agent Endpoints (Legacy)
+- `GET /preference/{user_id}` - Retrieve stored user profile
+- `GET /recipe/example` - Get example recipe for testing
 
 ## 🚀 Quick Start
 
@@ -83,7 +104,15 @@ API Documentation: `http://localhost:8000/docs`
 
 ## 🧪 Testing
 
-### Option 1: API Tests (Recommended)
+### Option 1: Test Sequential Agent Orchestrator (Recommended)
+```powershell
+# Test the new Sequential Agent workflow
+python test_orchestrator.py
+```
+
+Choose between interactive or automated mode to test the full orchestration.
+
+### Option 2: API Tests
 ```powershell
 # Terminal 1: Start server
 python main.py
@@ -94,12 +123,12 @@ python test_api.py
 
 You'll be prompted to enter your dietary preferences interactively.
 
-### Option 2: Direct Agent Testing
+### Option 3: Direct Agent Testing (Legacy)
 ```powershell
 python test_integration.py
 ```
 
-Choose between interactive or automated mode.
+Test individual agents using the old manual chaining approach.
 
 ## 📝 Example Usage
 
@@ -167,30 +196,44 @@ print(f"Total Cost: ₹{data['data']['shopping_plan']['estimated_total_cost']}")
 ## 🛠️ Technology Stack
 
 - **Framework**: FastAPI (Python 3.13)
-- **AI Models**: Google Gemini 2.0 Flash (via ADK)
+- **AI Models**: Google Gemini 2.0 Flash (via Google ADK)
+- **Orchestration**: Sequential Agent (Google ADK)
+- **Memory**: InMemoryMemoryService (session-based context)
 - **Tools**: Google Search API
 - **Pricing API**: RapidAPI Amazon Grocery API
 - **Data Validation**: Pydantic
 - **Server**: Uvicorn
 
+**Configuration:**
+- Retry logic: 8 attempts, exponential backoff (base 10), max 60s delay
+- Session management: InMemorySessionService
+- Memory persistence: Cross-session context (in-memory)
+
 ## 📊 Project Structure
 
 ```
 meal_planner_agent/
+├── orchestrator.py             # Sequential Agent orchestrator (NEW)
+├── test_orchestrator.py        # Test Sequential Agent workflow (NEW)
 ├── agents/
-│   ├── preference_agent.py    # Preference parsing with Gemini
+│   ├── preference_agent.py     # Preference parsing with Gemini
 │   ├── recipe_agent.py         # Recipe generation with Google Search
 │   ├── shopping_budget_agent.py # Shopping list + live pricing
 │   └── health_agent.py         # Nutrition analysis
 ├── models/
 │   └── schema.py               # Pydantic data models
-├── main.py                     # FastAPI server
+├── main.py                     # FastAPI server with Sequential Agent
 ├── test_api.py                 # API endpoint tests (interactive)
-├── test_integration.py         # Direct agent tests
+├── test_integration.py         # Direct agent tests (legacy)
 ├── .env                        # API keys (create this)
 ├── .gitignore                  # Git ignore rules
 └── requirements.txt            # Python dependencies
 ```
+
+**Key Files:**
+- `orchestrator.py` - Implements Sequential Agent pattern for automatic workflow
+- `test_orchestrator.py` - Tests the orchestrated workflow with memory features
+- `main.py` - FastAPI server exposing Sequential Agent via REST API
 
 ## 🔑 Required API Keys
 
@@ -198,11 +241,6 @@ meal_planner_agent/
 1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Create API key
 3. Add to `.env`: `GOOGLE_API_KEY=your_key`
-
-### RapidAPI Key (Amazon Grocery)
-1. Sign up at [RapidAPI](https://rapidapi.com/)
-2. Subscribe to [Amazon Grocery API](https://rapidapi.com/grocery-api2/api/grocery-api2)
-3. Add to `.env`: `RAPIDAPI_KEY=your_key`
 
 ## 🎯 Features in Detail
 
@@ -257,6 +295,18 @@ pip install -r requirements.txt
 ### Issue: "No recipe_data found"
 **Solution:** Check internet connection (Google Search requires network access)
 
+### Issue: Rate Limits (429 errors)
+**Solution:** The Sequential Agent has enhanced retry logic:
+- 8 retry attempts (up from 5)
+- Exponential backoff with base 10
+- Max delay capped at 60 seconds
+
+### Issue: Memory not persisting
+**Note:** Memory is in-memory only (InMemoryMemoryService):
+- ✅ Fast and free
+- ❌ Data lost on server restart
+- For persistence, upgrade to VertexAIMemoryBankService (requires Google Cloud)
+
 ## 📈 Future Enhancements
 
 - [ ] Database integration for persistent storage
@@ -267,6 +317,15 @@ pip install -r requirements.txt
 - [ ] Mobile app integration
 - [ ] Recipe image generation
 - [ ] Grocery delivery integration
+- [ ] Upgrade to VertexAI Memory for persistent context
+- [ ] A2A Protocol for distributed microservices (when needed)
+
+## 📚 Learn More
+
+- **API Documentation**: `http://localhost:8000/docs` (when server running)
+- **Sequential Agent Guide**: [Google ADK Sequential Agents](https://google.github.io/adk-docs/agents/workflow-agents/sequential-agents/)
+- **Memory Documentation**: [ADK Memory](https://google.github.io/adk-docs/sessions/memory/)
+- **A2A vs Sequential**: [When to use A2A vs Local Sub-Agents](https://google.github.io/adk-docs/a2a/intro/#when-to-use-a2a-vs-local-sub-agents)
 
 ## 📄 License
 
@@ -295,6 +354,5 @@ For issues and questions:
 
 ---
 
-**Version:** 2.0.0  
 **Last Updated:** December 2025  
 **Status:** ✅ Production Ready
