@@ -92,3 +92,4 @@ tmp/
 
 # FastAPI/Uvicorn
 .uvicorn/
+.env
